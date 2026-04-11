@@ -21,7 +21,7 @@ impl DestinationType {
     pub fn to_i32(&self) -> i32 {
         match self {
             Self::Null => ffi::solClient_destinationType_SOLCLIENT_NULL_DESTINATION,
-            Self::Topic => ffi::solClient_destinationType_SOLCLIENT_TOPIC_TEMP_DESTINATION,
+            Self::Topic => ffi::solClient_destinationType_SOLCLIENT_TOPIC_DESTINATION,
             Self::Queue => ffi::solClient_destinationType_SOLCLIENT_QUEUE_DESTINATION,
             Self::TopicTemp => ffi::solClient_destinationType_SOLCLIENT_TOPIC_TEMP_DESTINATION,
             Self::QueueTemp => ffi::solClient_destinationType_SOLCLIENT_QUEUE_TEMP_DESTINATION,
@@ -60,5 +60,42 @@ impl From<ffi::solClient_destination> for MessageDestination {
         let dest: CString = dest_cstr.into();
 
         MessageDestination { dest_type, dest }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn destination_type_to_i32_maps_correctly() {
+        assert_eq!(
+            DestinationType::Null.to_i32(),
+            ffi::solClient_destinationType_SOLCLIENT_NULL_DESTINATION,
+        );
+        assert_eq!(
+            DestinationType::Topic.to_i32(),
+            ffi::solClient_destinationType_SOLCLIENT_TOPIC_DESTINATION,
+        );
+        assert_eq!(
+            DestinationType::Queue.to_i32(),
+            ffi::solClient_destinationType_SOLCLIENT_QUEUE_DESTINATION,
+        );
+        assert_eq!(
+            DestinationType::TopicTemp.to_i32(),
+            ffi::solClient_destinationType_SOLCLIENT_TOPIC_TEMP_DESTINATION,
+        );
+        assert_eq!(
+            DestinationType::QueueTemp.to_i32(),
+            ffi::solClient_destinationType_SOLCLIENT_QUEUE_TEMP_DESTINATION,
+        );
+    }
+
+    #[test]
+    fn topic_is_not_topic_temp() {
+        assert_ne!(
+            DestinationType::Topic.to_i32(),
+            DestinationType::TopicTemp.to_i32(),
+        );
     }
 }

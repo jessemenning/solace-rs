@@ -27,10 +27,6 @@ unsafe impl<M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send> Send
     for CacheSession<'_, M, E>
 {
 }
-unsafe impl<M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send> Sync
-    for CacheSession<'_, M, E>
-{
-}
 
 impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send> Deref
     for CacheSession<'session, M, E>
@@ -129,11 +125,13 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
     {
         let c_topic = CString::new(topic)?;
 
+        // When subscribe=false, add the NO_SUBSCRIBE flag so the broker does not
+        // automatically create a live-data subscription for the caller.
         let flags = if subscribe {
             ffi::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FLOWTHRU
-                & ffi::SOLCLIENT_CACHEREQUEST_FLAGS_NO_SUBSCRIBE
         } else {
             ffi::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FLOWTHRU
+                | ffi::SOLCLIENT_CACHEREQUEST_FLAGS_NO_SUBSCRIBE
         };
 
         let rc = unsafe {

@@ -25,7 +25,7 @@ pub enum SessionBuilderError {
     InvalidArgs(#[from] NulError),
     #[error("{0} arg need to be set")]
     MissingRequiredArgs(String),
-    #[error("{0} valid range is {1} foound {2}")]
+    #[error("{0} valid range is {1} found {2}")]
     InvalidRange(String, String, String),
 }
 
@@ -776,7 +776,7 @@ where
         let connect_retries = match value.connect_retries {
             Some(x) if x < -1 => {
                 return Err(SessionBuilderError::InvalidRange(
-                    "connect_retries ".to_owned(),
+                    "connect_retries".to_owned(),
                     ">= -1".to_owned(),
                     x.to_string(),
                 ));
@@ -788,7 +788,7 @@ where
         let reconnect_retries = match value.reconnect_retries {
             Some(x) if x < -1 => {
                 return Err(SessionBuilderError::InvalidRange(
-                    "reconnect_retries ".to_owned(),
+                    "reconnect_retries".to_owned(),
                     ">= -1".to_owned(),
                     x.to_string(),
                 ));

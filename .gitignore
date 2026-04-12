@@ -6,3 +6,5 @@
 /ex
 /Intro
 .cargo
+.env
+.ssl-trust/

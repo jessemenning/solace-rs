@@ -1,6 +1,7 @@
 use ffi::solClient_getLastErrorInfo;
 use num_traits::FromPrimitive;
 
+use crate::flow::FlowEvent;
 use crate::message::InboundMessage;
 use crate::session::SessionEvent;
 use crate::SolClientSubCode;
@@ -91,6 +92,78 @@ extern "C" fn static_on_event<'s, F>(
 
     let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
 
+    user_closure(event);
+}
+
+pub(crate) fn on_flow_message_trampoline<'s, F>(
+    _closure: &'s F,
+) -> ffi::solClient_flow_rxMsgCallbackFunc_t
+where
+    F: FnMut(InboundMessage) + Send + 's,
+{
+    Some(static_on_flow_message::<F>)
+}
+
+pub(crate) fn on_flow_event_trampoline<'s, F>(
+    _closure: &'s F,
+) -> ffi::solClient_flow_eventCallbackFunc_t
+where
+    F: FnMut(FlowEvent) + Send + 's,
+{
+    Some(static_on_flow_event::<F>)
+}
+
+pub(crate) extern "C" fn static_no_op_on_flow_event(
+    _opaque_flow_p: ffi::solClient_opaqueFlow_pt,
+    _event_info_p: ffi::solClient_flow_eventCallbackInfo_pt,
+    _raw_user_closure: *mut ::std::os::raw::c_void,
+) {
+}
+
+extern "C" fn static_on_flow_message<'s, F>(
+    _opaque_flow_p: ffi::solClient_opaqueFlow_pt,
+    msg_p: ffi::solClient_opaqueMsg_pt,
+    raw_user_closure: *mut ::std::os::raw::c_void,
+) -> ffi::solClient_rxMsgCallback_returnCode_t
+where
+    F: FnMut(InboundMessage) + Send + 's,
+{
+    let non_null_raw_user_closure = std::ptr::NonNull::new(raw_user_closure);
+
+    let Some(raw_user_closure) = non_null_raw_user_closure else {
+        return ffi::solClient_rxMsgCallback_returnCode_SOLCLIENT_CALLBACK_OK;
+    };
+
+    let message = InboundMessage::from(msg_p);
+    let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
+    user_closure(message);
+
+    ffi::solClient_rxMsgCallback_returnCode_SOLCLIENT_CALLBACK_TAKE_MSG
+}
+
+extern "C" fn static_on_flow_event<'s, F>(
+    _opaque_flow_p: ffi::solClient_opaqueFlow_pt,
+    event_info_p: ffi::solClient_flow_eventCallbackInfo_pt,
+    raw_user_closure: *mut ::std::os::raw::c_void,
+) where
+    F: FnMut(FlowEvent) + Send + 's,
+{
+    let non_null_raw_user_closure = std::ptr::NonNull::new(raw_user_closure);
+
+    let Some(raw_user_closure) = non_null_raw_user_closure else {
+        return;
+    };
+
+    let Some(event_info_p) = std::ptr::NonNull::new(event_info_p) else {
+        return;
+    };
+    let raw_event = unsafe { (*event_info_p.as_ptr()).flowEvent };
+
+    let Some(event) = FlowEvent::from_u32(raw_event) else {
+        return;
+    };
+
+    let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
     user_closure(event);
 }
 

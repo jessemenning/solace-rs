@@ -18,7 +18,7 @@ Focuses on providing safe and idiomatic rust API over the C Solace library.
     - [x] Persistent
 - [x] Solcache - (Untested)
 - [x] Request Reply
-- [ ] Async - TODO
+- [x] Async - `AsyncSession` and `AsyncFlow` available via the `async` feature flag (requires tokio)
 
 ## Installation
 
@@ -63,7 +63,7 @@ cargo run --example <example_name> -- <example_args>
 
 ## Minimum supported Rust version (MSRV)
 
-The current minimum supported Rust version (MSRV) is 1.81
+The current minimum supported Rust version (MSRV) is 1.82
 
 ## OS Support / CI Tests
 

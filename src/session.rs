@@ -6,6 +6,7 @@ pub use event::SessionEvent;
 
 use crate::cache_session::CacheSession;
 use crate::context::Context;
+use crate::flow::builder::FlowBuilder;
 use crate::message::{InboundMessage, Message, OutboundMessage};
 use crate::util::get_last_error_info;
 use crate::SessionError;
@@ -149,6 +150,17 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
         N: Into<Vec<u8>>,
     {
         CacheSession::new(self, cache_name, max_message, max_age, timeout_ms)
+    }
+
+    /// Create a flow builder for binding to a queue or topic endpoint.
+    ///
+    /// Returns a `FlowBuilder` that can be configured and built into a `Flow`
+    /// for guaranteed message consumption.
+    pub fn flow_builder<FM>(&self) -> FlowBuilder<'_, 'session, M, E, FM>
+    where
+        FM: FnMut(InboundMessage) + Send,
+    {
+        FlowBuilder::new(self)
     }
 
     pub fn disconnect(self) -> Result<()> {

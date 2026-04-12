@@ -1,5 +1,8 @@
+#[cfg(feature = "async")]
+pub mod async_support;
 pub mod cache_session;
 pub mod context;
+pub mod flow;
 pub mod message;
 pub mod session;
 pub(crate) mod util;
@@ -10,16 +13,28 @@ use std::fmt::{self, Display};
 use thiserror::Error;
 
 pub use crate::context::Context;
+pub use crate::message::MessageError;
+pub use crate::message::outbound::MessageBuilderError;
 pub use crate::session::Session;
+pub use crate::session::builder::SessionBuilderError;
 
-// Generic error
-#[derive(Debug, Clone)]
-pub struct SolaceError;
-
-impl fmt::Display for SolaceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Solace Error Occured!")
-    }
+/// Top-level error type that wraps all sub-errors in this crate.
+///
+/// Use `?` to propagate any crate error into `SolaceError` in application code.
+#[derive(Error, Debug)]
+pub enum SolaceError {
+    #[error(transparent)]
+    Context(#[from] ContextError),
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    #[error(transparent)]
+    SessionBuilder(#[from] SessionBuilderError),
+    #[error(transparent)]
+    Flow(#[from] FlowError),
+    #[error(transparent)]
+    Message(#[from] MessageError),
+    #[error(transparent)]
+    MessageBuilder(#[from] MessageBuilderError),
 }
 
 enum_from_primitive! {
@@ -82,7 +97,7 @@ impl std::fmt::Debug for SolClientReturnCode {
 }
 
 impl SolClientReturnCode {
-    pub(crate) fn from_raw(value: i32) -> Self {
+    pub fn from_raw(value: i32) -> Self {
         match Self::from_i32(value) {
             Some(rc) => rc,
             None => Self::Fail,
@@ -110,6 +125,24 @@ impl Display for SolClientSubCode {
 pub enum ContextError {
     #[error("context thread failed to initialize. SolClient return code: {0:?}")]
     InitializationFailed(SolClientReturnCode, SolClientSubCode),
+}
+
+#[derive(Error, Debug)]
+pub enum FlowError {
+    #[error("flow received arguments with null value")]
+    InvalidArgsNulError(std::ffi::NulError),
+    #[error("flow missing required argument: {0}")]
+    MissingRequiredArgs(String),
+    #[error("flow failed to create. SolClient return code: {0} subcode: {1}")]
+    CreationFailure(SolClientReturnCode, SolClientSubCode),
+    #[error("flow failed to start. SolClient return code: {0} subcode: {1}")]
+    StartFailure(SolClientReturnCode, SolClientSubCode),
+    #[error("flow failed to stop. SolClient return code: {0} subcode: {1}")]
+    StopFailure(SolClientReturnCode, SolClientSubCode),
+    #[error("flow failed to ack message id {0}. SolClient return code: {1} subcode: {2}")]
+    AckFailure(u64, SolClientReturnCode, SolClientSubCode),
+    #[error("flow failed to settle message id {0}. SolClient return code: {1} subcode: {2}")]
+    SettleFailure(u64, SolClientReturnCode, SolClientSubCode),
 }
 
 #[derive(Error, Debug)]

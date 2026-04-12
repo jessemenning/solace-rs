@@ -2,10 +2,11 @@ use super::{CacheStatus, Message, MessageError, Result};
 use crate::SolClientReturnCode;
 use enum_primitive::*;
 use solace_rs_sys as ffi;
+use std::collections::HashMap;
 use std::convert::From;
 use std::ffi::CStr;
 use std::time::{Duration, SystemTime};
-use std::{fmt, ptr};
+use std::{fmt, mem, ptr};
 use tracing::warn;
 
 pub struct InboundMessage {
@@ -124,7 +125,7 @@ impl From<ffi::solClient_opaqueMsg_pt> for InboundMessage {
     }
 }
 
-impl<'a> Message<'a> for InboundMessage {
+impl Message for InboundMessage {
     unsafe fn get_raw_message_ptr(&self) -> ffi::solClient_opaqueMsg_pt {
         self._msg_ptr
     }
@@ -194,5 +195,82 @@ impl InboundMessage {
     pub fn is_cache_msg(&self) -> CacheStatus {
         let raw = unsafe { ffi::solClient_msg_isCacheMsg(self.get_raw_message_ptr()) };
         CacheStatus::from_i32(raw).unwrap_or(CacheStatus::InvalidMessage)
+    }
+
+    /// Get user properties as a string key-value map.
+    ///
+    /// Returns an empty map if no user properties are set on the message.
+    /// Only string-valued properties are extracted; other types are skipped.
+    pub fn get_user_properties(&self) -> Result<HashMap<String, String>> {
+        let mut map_p: ffi::solClient_opaqueContainer_pt = ptr::null_mut();
+        let rc = unsafe {
+            ffi::solClient_msg_getUserPropertyMap(self.get_raw_message_ptr(), &mut map_p)
+        };
+
+        let rc = SolClientReturnCode::from_raw(rc);
+        match rc {
+            SolClientReturnCode::Ok => {}
+            SolClientReturnCode::NotFound => return Ok(HashMap::new()),
+            _ => return Err(MessageError::FieldError("user_properties", rc)),
+        }
+
+        let mut props = HashMap::new();
+        loop {
+            let mut field: ffi::solClient_field_t = unsafe { mem::zeroed() };
+            let mut name_p: *const std::os::raw::c_char = ptr::null();
+
+            let rc = unsafe {
+                ffi::solClient_container_getNextField(
+                    map_p,
+                    &mut field,
+                    mem::size_of::<ffi::solClient_field_t>(),
+                    &mut name_p,
+                )
+            };
+
+            let rc = SolClientReturnCode::from_raw(rc);
+            if rc == SolClientReturnCode::EndOfStream || !rc.is_ok() {
+                break;
+            }
+
+            if name_p.is_null() {
+                continue;
+            }
+
+            let name = unsafe { CStr::from_ptr(name_p) };
+            let name = match name.to_str() {
+                Ok(s) => s.to_string(),
+                Err(_) => continue,
+            };
+
+            // Only extract string-type fields
+            if field.type_ == ffi::solClient_fieldType_SOLCLIENT_STRING {
+                let value_ptr = unsafe { field.value.string };
+                if !value_ptr.is_null() {
+                    let value = unsafe { CStr::from_ptr(value_ptr) };
+                    if let Ok(v) = value.to_str() {
+                        props.insert(name, v.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(props)
+    }
+
+    /// Get the message ID for use with flow ACK/settle operations.
+    ///
+    /// Returns `None` for direct messages (which have no message ID).
+    pub fn get_msg_id(&self) -> Result<Option<u64>> {
+        let mut msg_id: ffi::solClient_msgId_t = 0;
+        let rc =
+            unsafe { ffi::solClient_msg_getMsgId(self.get_raw_message_ptr(), &mut msg_id) };
+
+        let rc = SolClientReturnCode::from_raw(rc);
+        match rc {
+            SolClientReturnCode::Ok => Ok(Some(msg_id)),
+            SolClientReturnCode::NotFound => Ok(None),
+            _ => Err(MessageError::FieldError("msg_id", rc)),
+        }
     }
 }

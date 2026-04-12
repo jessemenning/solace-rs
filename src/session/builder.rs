@@ -468,6 +468,11 @@ impl CheckedSessionProps {
             self.password.as_ptr(),
             ffi::SOLCLIENT_SESSION_PROP_CONNECT_BLOCKING.as_ptr() as *const i8,
             ffi::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const i8,
+            // Required for flow (guaranteed messaging) creation over WebSocket transports
+            // (wss:// / ws://).  Safe to set unconditionally: the SDK ignores it for
+            // native SMF transports (tcp:// / tcps://).
+            ffi::SOLCLIENT_SESSION_PROP_GUARANTEED_WITH_WEB_TRANSPORT.as_ptr() as *const i8,
+            ffi::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const i8,
         ];
 
         if let Some(x) = &self.buffer_size_bytes {

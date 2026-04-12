@@ -15,16 +15,25 @@ use solace_rs::{
     Context, SolaceLogLevel,
 };
 
+/// Short sleep used to ensure subscriptions are registered before publishing.
 static SLEEP_TIME: std::time::Duration = Duration::from_millis(10);
 
-const DEFAULT_HOST: &str = "worker-lenovo-yoga";
-const DEFAULT_PORT: &str = "55555";
+/// Per-message receive timeout. Long enough for cloud broker round-trip latency.
+static RECV_TIMEOUT: Duration = Duration::from_secs(10);
+
+const DEFAULT_URL: &str = "tcp://localhost:55555";
+const DEFAULT_VPN: &str = "default";
+const DEFAULT_USERNAME: &str = "default";
+const DEFAULT_PASSWORD: &str = "";
 
 #[test]
 #[ignore]
 fn subscribe_and_publish() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
 
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
     let (tx, rx) = mpsc::channel();
@@ -38,16 +47,19 @@ fn subscribe_and_publish() {
         let _ = tx.send(payload.to_owned());
     };
 
-    let session = solace_context
-        .session(
-            format!("tcp://{}:{}", host, port),
-            "default",
-            "default",
-            "",
-            Some(on_message),
-            None::<fn(SessionEvent)>,
-        )
-        .expect("creating session");
+    let mut builder = solace_context
+        .session_builder()
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
+        .on_message(on_message)
+        .on_event(|_: SessionEvent| {});
+    if let Some(dir) = trust_store_dir {
+        builder = builder.ssl_trust_store_dir(dir);
+    }
+    let session = builder.build().expect("creating session");
+
     session.subscribe(topic).expect("subscribing to topic");
 
     // need to wait before publishing so that the client is properly subscribed
@@ -63,12 +75,10 @@ fn subscribe_and_publish() {
             .expect("building outbound msg");
         session.publish(outbound_msg).expect("publishing message");
     }
-    sleep(SLEEP_TIME);
 
     let mut rx_msgs = vec![];
-
     loop {
-        match rx.try_recv() {
+        match rx.recv_timeout(RECV_TIMEOUT) {
             Ok(msg) => {
                 let str = String::from_utf8_lossy(&msg).to_string();
                 rx_msgs.push(str);
@@ -76,7 +86,7 @@ fn subscribe_and_publish() {
                     break;
                 }
             }
-            _ => panic!(),
+            Err(_) => panic!("timed out waiting for messages"),
         }
     }
 
@@ -86,8 +96,11 @@ fn subscribe_and_publish() {
 #[test]
 #[ignore]
 fn multi_subscribe_and_publish() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
     let msg_multiplier = 2;
 
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
@@ -96,38 +109,42 @@ fn multi_subscribe_and_publish() {
     let tx_msgs = vec!["helo", "hello2", "hello4", "helo5"];
     let topic = "multi_subscribe_and_publish";
 
-    let session0 = solace_context
-        .session(
-            format!("tcp://{}:{}", host, port),
-            "default",
-            "default",
-            "",
-            Some(move |message: InboundMessage| {
-                let Ok(Some(payload)) = message.get_payload() else {
-                    return;
-                };
-                let _ = tx0.send(payload.to_owned());
-            }),
-            Some(|_: SessionEvent| {}),
-        )
-        .expect("creating session");
+    let mut builder0 = solace_context
+        .session_builder()
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
+        .on_message(move |message: InboundMessage| {
+            let Ok(Some(payload)) = message.get_payload() else {
+                return;
+            };
+            let _ = tx0.send(payload.to_owned());
+        })
+        .on_event(|_: SessionEvent| {});
+    if let Some(dir) = trust_store_dir {
+        builder0 = builder0.ssl_trust_store_dir(dir);
+    }
+    let session0 = builder0.build().expect("creating session");
     session0.subscribe(topic).expect("subscribing to topic");
 
-    let session1 = solace_context
-        .session(
-            format!("tcp://{}:{}", host, port),
-            "default",
-            "default",
-            "",
-            Some(move |message: InboundMessage| {
-                let Ok(Some(payload)) = message.get_payload() else {
-                    return;
-                };
-                let _ = tx1.send(payload.to_owned());
-            }),
-            Some(|_: SessionEvent| {}),
-        )
-        .expect("creating session");
+    let mut builder1 = solace_context
+        .session_builder()
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
+        .on_message(move |message: InboundMessage| {
+            let Ok(Some(payload)) = message.get_payload() else {
+                return;
+            };
+            let _ = tx1.send(payload.to_owned());
+        })
+        .on_event(|_: SessionEvent| {});
+    if let Some(dir) = trust_store_dir {
+        builder1 = builder1.ssl_trust_store_dir(dir);
+    }
+    let session1 = builder1.build().expect("creating session");
     session1.subscribe(topic).expect("subscribing to topic");
 
     // need to wait before publishing so that the client is properly subscribed
@@ -144,11 +161,9 @@ fn multi_subscribe_and_publish() {
         session0.publish(outbound_msg).expect("publishing message");
     }
 
-    sleep(SLEEP_TIME);
-
     let mut rx_msgs = vec![];
     loop {
-        match rx.try_recv() {
+        match rx.recv_timeout(RECV_TIMEOUT) {
             Ok(msg) => {
                 let str = String::from_utf8_lossy(&msg).to_string();
                 rx_msgs.push(str);
@@ -156,7 +171,7 @@ fn multi_subscribe_and_publish() {
                     break;
                 }
             }
-            _ => panic!(),
+            Err(_) => panic!("timed out waiting for messages"),
         }
     }
 
@@ -182,8 +197,11 @@ fn multi_subscribe_and_publish() {
 #[test]
 #[ignore]
 fn unsubscribe_and_publish() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
 
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
     let (tx, rx) = mpsc::channel();
@@ -197,16 +215,19 @@ fn unsubscribe_and_publish() {
         let _ = tx.send(payload.to_owned());
     };
 
-    let session = solace_context
-        .session(
-            format!("tcp://{}:{}", host, port),
-            "default",
-            "default",
-            "",
-            Some(on_message),
-            None::<fn(SessionEvent)>,
-        )
-        .expect("creating session");
+    let mut builder = solace_context
+        .session_builder()
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
+        .on_message(on_message)
+        .on_event(|_: SessionEvent| {});
+    if let Some(dir) = trust_store_dir {
+        builder = builder.ssl_trust_store_dir(dir);
+    }
+    let session = builder.build().expect("creating session");
+
     session.subscribe(topic).expect("subscribing to topic");
 
     sleep(SLEEP_TIME);
@@ -222,14 +243,10 @@ fn unsubscribe_and_publish() {
         session.publish(outbound_msg).expect("publishing message");
     }
 
-    session.unsubscribe(topic).expect("unsubscribing to topic");
-
-    sleep(SLEEP_TIME);
-
+    // Receive messages published before unsubscribe
     let mut rx_msgs = vec![];
-
     loop {
-        match rx.try_recv() {
+        match rx.recv_timeout(RECV_TIMEOUT) {
             Ok(msg) => {
                 let str = String::from_utf8_lossy(&msg).to_string();
                 rx_msgs.push(str);
@@ -237,11 +254,16 @@ fn unsubscribe_and_publish() {
                     break;
                 }
             }
-            _ => panic!(),
+            Err(_) => panic!("timed out waiting for messages"),
         }
     }
 
     assert_eq!(tx_msgs, rx_msgs);
+
+    session.unsubscribe(topic).expect("unsubscribing to topic");
+
+    // Brief pause to ensure unsubscribe is processed
+    sleep(SLEEP_TIME);
 
     for msg in tx_msgs.clone() {
         let dest = MessageDestination::new(DestinationType::Topic, topic).unwrap();
@@ -254,18 +276,22 @@ fn unsubscribe_and_publish() {
         session.publish(outbound_msg).expect("publishing message");
     }
 
+    // Give time for any stray messages to arrive, then verify none did
     sleep(SLEEP_TIME);
 
     if rx.try_recv().is_ok() {
-        panic!()
+        panic!("received message after unsubscribe")
     }
 }
 
 #[test]
 #[ignore]
 fn multi_thread_publisher() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
 
     let msg_multiplier = 3;
 
@@ -281,18 +307,18 @@ fn multi_thread_publisher() {
         let _ = tx.send(payload.to_owned());
     };
 
-    let session = Arc::new(Mutex::new(
-        solace_context
-            .session(
-                format!("tcp://{}:{}", host, port),
-                "default",
-                "default",
-                "",
-                Some(on_message),
-                None::<fn(SessionEvent)>,
-            )
-            .expect("creating session"),
-    ));
+    let mut builder = solace_context
+        .session_builder()
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
+        .on_message(on_message)
+        .on_event(|_: SessionEvent| {});
+    if let Some(dir) = trust_store_dir {
+        builder = builder.ssl_trust_store_dir(dir);
+    }
+    let session = Arc::new(Mutex::new(builder.build().expect("creating session")));
 
     session
         .lock()
@@ -331,16 +357,28 @@ fn multi_thread_publisher() {
         handle.join().unwrap();
     }
 
-    sleep(SLEEP_TIME);
+    // Collect all expected messages before dropping the session
+    let expected = tx_msgs.len() * msg_multiplier;
+    let mut rx_msgs = vec![];
+    loop {
+        match rx.recv_timeout(RECV_TIMEOUT) {
+            Ok(msg) => {
+                let str = String::from_utf8_lossy(&msg).to_string();
+                rx_msgs.push(str);
+                if rx_msgs.len() == expected {
+                    break;
+                }
+            }
+            Err(_) => panic!(
+                "timed out: received {}/{} messages",
+                rx_msgs.len(),
+                expected
+            ),
+        }
+    }
+
     drop(session);
     drop(solace_context);
-
-    let mut rx_msgs = vec![];
-
-    while let Ok(msg) = rx.recv() {
-        let str = String::from_utf8_lossy(&msg).to_string();
-        rx_msgs.push(str);
-    }
 
     assert!(rx_msgs.len() == tx_msgs.len() * msg_multiplier);
 
@@ -366,8 +404,11 @@ fn multi_thread_publisher() {
 #[test]
 #[ignore]
 fn no_local_session() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
 
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
     let (tx, rx) = mpsc::channel();
@@ -378,17 +419,19 @@ fn no_local_session() {
         let _ = tx.send(message);
     };
 
-    let session = solace_context
+    let mut builder = solace_context
         .session_builder()
-        .host_name(format!("tcp://{}:{}", host, port))
-        .vpn_name("default")
-        .username("default")
-        .password("")
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
         .on_message(on_message)
         .on_event(|_: SessionEvent| {})
-        .no_local(true)
-        .build()
-        .expect("creating session");
+        .no_local(true);
+    if let Some(dir) = trust_store_dir {
+        builder = builder.ssl_trust_store_dir(dir);
+    }
+    let session = builder.build().expect("creating session");
 
     session.subscribe(topic).expect("subscribing to topic");
 
@@ -413,8 +456,11 @@ fn no_local_session() {
 #[test]
 #[ignore]
 fn auto_generate_tx_rx_session_fields() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
 
     let (tx, rx) = mpsc::channel();
 
@@ -426,12 +472,12 @@ fn auto_generate_tx_rx_session_fields() {
         let _ = tx.send(message);
     };
 
-    let session = solace_context
+    let mut builder = solace_context
         .session_builder()
-        .host_name(format!("tcp://{}:{}", host, port))
-        .vpn_name("default")
-        .username("default")
-        .password("")
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
         .on_message(on_message)
         .on_event(|_: SessionEvent| {})
         // NOTE: there is bug in the solace lib where it does not copy over the message if there is
@@ -440,9 +486,11 @@ fn auto_generate_tx_rx_session_fields() {
         .generate_rcv_timestamps(true)
         .generate_sender_id(true)
         .generate_send_timestamp(true)
-        .generate_sender_sequence_number(true)
-        .build()
-        .expect("creating session");
+        .generate_sender_sequence_number(true);
+    if let Some(dir) = trust_store_dir {
+        builder = builder.ssl_trust_store_dir(dir);
+    }
+    let session = builder.build().expect("creating session");
 
     session.subscribe(topic).expect("subscribing to topic");
 
@@ -459,23 +507,32 @@ fn auto_generate_tx_rx_session_fields() {
             .expect("building outbound msg");
         session.publish(outbound_msg).expect("publishing message");
     }
-    sleep(SLEEP_TIME);
-    let _ = session.disconnect();
 
-    drop(solace_context);
-
+    // Collect all expected messages before disconnecting to avoid race with drop
     let mut iter = tx_msgs.clone().into_iter().cycle();
-
     let mut rx_count = 0;
-    while let Ok(msg) = rx.recv() {
-        assert!(msg.get_payload().unwrap().unwrap() == iter.next().unwrap().as_bytes());
-        assert!(msg.get_receive_timestamp().is_ok_and(|v| v.is_some()));
-        assert!(msg.get_sender_id().is_ok_and(|v| v.is_some()));
-        assert!(msg.get_sender_timestamp().is_ok_and(|v| v.is_some()));
-        assert!(msg.get_sequence_number().is_ok_and(|v| v.is_some()));
-
-        rx_count += 1;
+    loop {
+        match rx.recv_timeout(RECV_TIMEOUT) {
+            Ok(msg) => {
+                assert!(msg.get_payload().unwrap().unwrap() == iter.next().unwrap().as_bytes());
+                assert!(msg.get_receive_timestamp().is_ok_and(|v| v.is_some()));
+                assert!(msg.get_sender_id().is_ok_and(|v| v.is_some()));
+                assert!(msg.get_sender_timestamp().is_ok_and(|v| v.is_some()));
+                assert!(msg.get_sequence_number().is_ok_and(|v| v.is_some()));
+                rx_count += 1;
+                if rx_count == send_count {
+                    break;
+                }
+            }
+            Err(_) => panic!(
+                "timed out: received {}/{} messages",
+                rx_count, send_count
+            ),
+        }
     }
+
+    let _ = session.disconnect();
+    drop(solace_context);
 
     assert!(rx_count == send_count);
 }
@@ -483,8 +540,11 @@ fn auto_generate_tx_rx_session_fields() {
 #[test]
 #[ignore]
 fn request_and_reply() {
-    let host = option_env!("SOLACE_HOST").unwrap_or(DEFAULT_HOST);
-    let port = option_env!("SOLACE_PORT").unwrap_or(DEFAULT_PORT);
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let trust_store_dir = option_env!("SOLACE_BROKER_TRUST_STORE_DIR");
     let topic = "request_and_reply";
 
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
@@ -495,16 +555,19 @@ fn request_and_reply() {
         let barrier = g_barrier.clone();
         // requester
         let req = s.spawn(move || {
-            let session = context
-                .session(
-                    format!("tcp://{}:{}", host, port),
-                    "default",
-                    "default",
-                    "",
-                    None::<fn(InboundMessage)>,
-                    None::<fn(SessionEvent)>,
-                )
-                .unwrap();
+            let mut builder = context
+                .session_builder()
+                .host_name(url)
+                .vpn_name(vpn)
+                .username(username)
+                .password(password)
+                .on_message(|_: InboundMessage| {})
+                .on_event(|_: SessionEvent| {});
+            if let Some(dir) = trust_store_dir {
+                builder = builder.ssl_trust_store_dir(dir);
+            }
+            let session = builder.build().unwrap();
+
             barrier.wait();
             sleep(SLEEP_TIME);
 
@@ -525,18 +588,21 @@ fn request_and_reply() {
         let context = solace_context.clone();
         let res = s.spawn(move || {
             let (tx, rx) = mpsc::channel();
-            let session = context
-                .session(
-                    format!("tcp://{}:{}", host, port),
-                    "default",
-                    "default",
-                    "",
-                    Some(move |message: InboundMessage| {
-                        let _ = tx.send(message);
-                    }),
-                    None::<fn(SessionEvent)>,
-                )
-                .unwrap();
+            let mut builder = context
+                .session_builder()
+                .host_name(url)
+                .vpn_name(vpn)
+                .username(username)
+                .password(password)
+                .on_message(move |message: InboundMessage| {
+                    let _ = tx.send(message);
+                })
+                .on_event(|_: SessionEvent| {});
+            if let Some(dir) = trust_store_dir {
+                builder = builder.ssl_trust_store_dir(dir);
+            }
+            let session = builder.build().unwrap();
+
             session.subscribe(topic).unwrap();
 
             g_barrier.wait();

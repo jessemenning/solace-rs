@@ -2,6 +2,7 @@ use super::destination::MessageDestination;
 use super::{ClassOfService, DeliveryMode, Message};
 use crate::SolClientReturnCode;
 use solace_rs_sys as ffi;
+use std::collections::HashMap;
 use std::ffi::{c_void, CString, NulError};
 use std::ptr;
 use std::time::SystemTime;
@@ -43,7 +44,7 @@ impl Drop for OutboundMessage {
     }
 }
 
-impl<'a> Message<'a> for OutboundMessage {
+impl Message for OutboundMessage {
     unsafe fn get_raw_message_ptr(&self) -> ffi::solClient_opaqueMsg_pt {
         self._msg_ptr
     }
@@ -61,6 +62,7 @@ pub struct OutboundMessageBuilder {
     application_id: Option<Vec<u8>>,
     application_msg_type: Option<Vec<u8>>,
     user_data: Option<Vec<u8>>,
+    user_properties: Option<HashMap<String, String>>,
     sender_ts: Option<SystemTime>,
     eliding_eligible: Option<()>,
     is_reply: Option<()>,
@@ -132,6 +134,20 @@ impl OutboundMessageBuilder {
     {
         self.user_data = Some(data.into());
 
+        self
+    }
+
+    /// Add a single user property (string key-value pair) to the message.
+    pub fn user_property<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.user_properties
+            .get_or_insert_with(HashMap::new)
+            .insert(key.into(), value.into());
+        self
+    }
+
+    /// Set all user properties from a HashMap. Replaces any previously set user properties.
+    pub fn user_properties(mut self, props: HashMap<String, String>) -> Self {
+        self.user_properties = Some(props);
         self
     }
 
@@ -227,10 +243,10 @@ impl OutboundMessageBuilder {
             {
                 return Err(MessageBuilderError::SizeErrorArgs(
                     "user_data".to_owned(),
-                    user_data.len(),
                     ffi::SOLCLIENT_BUFINFO_MAX_USER_DATA_SIZE
                         .try_into()
                         .unwrap(),
+                    user_data.len(),
                 ));
             }
             // We pass the ptr which is then copied over
@@ -241,6 +257,31 @@ impl OutboundMessageBuilder {
                     user_data.len() as u32,
                 )
             };
+        }
+
+        // user properties (string key-value pairs)
+        if let Some(props) = self.user_properties {
+            let mut map_p: ffi::solClient_opaqueContainer_pt = ptr::null_mut();
+            // Estimate 64 bytes per property for initial allocation
+            let estimated_size = (props.len() * 64) as u32;
+            let rc = unsafe {
+                ffi::solClient_msg_createUserPropertyMap(msg_ptr, &mut map_p, estimated_size)
+            };
+            let rc = SolClientReturnCode::from_raw(rc);
+            if !rc.is_ok() {
+                return Err(MessageBuilderError::MessageAlocFailure);
+            }
+            for (key, value) in &props {
+                let c_key = CString::new(key.as_str())?;
+                let c_value = CString::new(value.as_str())?;
+                unsafe {
+                    ffi::solClient_container_addString(
+                        map_p,
+                        c_value.as_ptr(),
+                        c_key.as_ptr(),
+                    );
+                }
+            }
         }
 
         // binary attachment

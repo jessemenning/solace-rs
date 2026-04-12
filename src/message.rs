@@ -70,7 +70,7 @@ pub enum MessageError {
 
 type Result<T> = std::result::Result<T, MessageError>;
 
-pub trait Message<'a> {
+pub trait Message {
     /// .
     ///
     /// # Safety
@@ -80,9 +80,9 @@ pub trait Message<'a> {
     /// Other methods will not check if the message is valid or not
     ///
     /// .
-    unsafe fn get_raw_message_ptr(&'a self) -> ffi::solClient_opaqueMsg_pt;
+    unsafe fn get_raw_message_ptr(&self) -> ffi::solClient_opaqueMsg_pt;
 
-    fn get_payload(&'a self) -> Result<Option<&'a [u8]>> {
+    fn get_payload(&self) -> Result<Option<&[u8]>> {
         let mut buffer = ptr::null_mut();
         let mut buffer_len: u32 = 0;
 
@@ -110,7 +110,7 @@ pub trait Message<'a> {
         Ok(Some(safe_slice))
     }
 
-    fn get_xml_part(&'a self) -> Result<Option<&'a [u8]>> {
+    fn get_xml_part(&self) -> Result<Option<&[u8]>> {
         let mut buffer = ptr::null_mut();
         let mut buffer_len: u32 = 0;
 
@@ -134,7 +134,7 @@ pub trait Message<'a> {
         Ok(Some(safe_slice))
     }
 
-    fn get_application_message_id(&'a self) -> Option<&'a str> {
+    fn get_application_message_id(&self) -> Option<&str> {
         let mut buffer = ptr::null();
 
         let rc = unsafe {
@@ -152,7 +152,7 @@ pub trait Message<'a> {
         c_str.to_str().ok()
     }
 
-    fn get_application_msg_type(&'a self) -> Option<&'a str> {
+    fn get_application_msg_type(&self) -> Option<&str> {
         let mut buffer = ptr::null();
 
         let rc = unsafe {
@@ -170,7 +170,7 @@ pub trait Message<'a> {
         c_str.to_str().ok()
     }
 
-    fn get_class_of_service(&'a self) -> Result<ClassOfService> {
+    fn get_class_of_service(&self) -> Result<ClassOfService> {
         let mut cos: u32 = 0;
         let rc =
             unsafe { ffi::solClient_msg_getClassOfService(self.get_raw_message_ptr(), &mut cos) };
@@ -187,7 +187,7 @@ pub trait Message<'a> {
         Ok(cos)
     }
 
-    fn get_correlation_id(&'a self) -> Result<Option<&'a str>> {
+    fn get_correlation_id(&self) -> Result<Option<&str>> {
         let mut buffer = ptr::null();
 
         let rc =
@@ -209,21 +209,21 @@ pub trait Message<'a> {
         Ok(Some(str))
     }
 
-    fn is_eliding_eligible(&'a self) -> bool {
+    fn is_eliding_eligible(&self) -> bool {
         let unsafe_result =
             unsafe { ffi::solClient_msg_isElidingEligible(self.get_raw_message_ptr()) };
 
         unsafe_result != 0
     }
 
-    fn get_expiration(&'a self) -> i64 {
+    fn get_expiration(&self) -> i64 {
         let mut exp: i64 = 0;
         unsafe { ffi::solClient_msg_getExpiration(self.get_raw_message_ptr(), &mut exp) };
 
         exp
     }
 
-    fn get_priority(&'a self) -> Result<Option<u8>> {
+    fn get_priority(&self) -> Result<Option<u8>> {
         let mut priority: i32 = 0;
         let rc =
             unsafe { ffi::solClient_msg_getPriority(self.get_raw_message_ptr(), &mut priority) };
@@ -240,7 +240,7 @@ pub trait Message<'a> {
         Ok(Some(priority as u8))
     }
 
-    fn get_sequence_number(&'a self) -> Result<Option<i64>> {
+    fn get_sequence_number(&self) -> Result<Option<i64>> {
         let mut seq_num: i64 = 0;
         let rc = unsafe {
             ffi::solClient_msg_getSequenceNumber(self.get_raw_message_ptr(), &mut seq_num)
@@ -254,7 +254,7 @@ pub trait Message<'a> {
         }
     }
 
-    fn get_destination(&'a self) -> Result<Option<MessageDestination>> {
+    fn get_destination(&self) -> Result<Option<MessageDestination>> {
         let mut dest_struct: ffi::solClient_destination = ffi::solClient_destination {
             destType: ffi::solClient_destinationType_SOLCLIENT_NULL_DESTINATION,
             dest: ptr::null_mut(),
@@ -277,7 +277,7 @@ pub trait Message<'a> {
         }
     }
 
-    fn get_reply_to(&'a self) -> Result<Option<MessageDestination>> {
+    fn get_reply_to(&self) -> Result<Option<MessageDestination>> {
         let mut dest_struct: ffi::solClient_destination = ffi::solClient_destination {
             destType: ffi::solClient_destinationType_SOLCLIENT_NULL_DESTINATION,
             dest: ptr::null_mut(),
@@ -300,12 +300,12 @@ pub trait Message<'a> {
         }
     }
 
-    fn is_reply(&'a self) -> bool {
+    fn is_reply(&self) -> bool {
         let res = unsafe { ffi::solClient_msg_isReplyMsg(self.get_raw_message_ptr()) };
         res != 0
     }
 
-    fn get_sender_timestamp(&'a self) -> Result<Option<SystemTime>> {
+    fn get_sender_timestamp(&self) -> Result<Option<SystemTime>> {
         let mut ts: i64 = 0;
         let rc =
             unsafe { ffi::solClient_msg_getSenderTimestamp(self.get_raw_message_ptr(), &mut ts) };
@@ -321,7 +321,7 @@ pub trait Message<'a> {
         }
     }
 
-    fn get_user_data(&'a self) -> Result<Option<&'a [u8]>> {
+    fn get_user_data(&self) -> Result<Option<&[u8]>> {
         let mut buffer = ptr::null_mut();
         let mut buffer_len: u32 = 0;
 

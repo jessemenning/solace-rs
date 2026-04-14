@@ -147,7 +147,7 @@ pub enum FlowError {
 
 #[derive(Error, Debug)]
 pub enum SessionError {
-    #[error("session receieved arguments with null value")]
+    #[error("session received arguments with null value")]
     InvalidArgsNulError(#[from] std::ffi::NulError),
     #[error("session failed to connect. SolClient return code: {0} subcode: {1}")]
     ConnectionFailure(SolClientReturnCode, SolClientSubCode),

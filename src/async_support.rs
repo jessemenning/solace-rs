@@ -362,7 +362,7 @@ impl AsyncSession {
             let session_guard = self.inner.lock().unwrap();
             unsafe {
                 ffi::solClient_session_createFlow(
-                    props.as_ptr() as ffi::solClient_propertyArray_pt,
+                    props.as_ptr() as *mut *mut _,
                     session_guard._session_ptr,
                     &mut flow_ptr,
                     &mut func_info,

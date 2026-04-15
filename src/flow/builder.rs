@@ -248,7 +248,7 @@ where
         };
 
         let mut func_info = ffi::solClient_flow_createFuncInfo_t {
-            rxInfo: ffi::solClient_flow_createRxCallbackFuncInfo_t::default(),
+            rxInfo: unsafe { mem::zeroed() },
             eventInfo: event_callback_info,
             rxMsgInfo: rx_msg_callback_info,
         };
@@ -257,7 +257,7 @@ where
 
         let rc = unsafe {
             ffi::solClient_session_createFlow(
-                props.as_ptr() as ffi::solClient_propertyArray_pt,
+                props.as_ptr() as *mut *mut _,
                 self.session._session_ptr,
                 &mut flow_ptr,
                 &mut func_info,

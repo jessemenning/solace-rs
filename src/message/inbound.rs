@@ -274,6 +274,43 @@ impl InboundMessage {
         }
     }
 
+    /// Retrieve the binary attachment as a string if it was published as a JMS
+    /// string (i.e. the attachment is a Solace SDT string container).
+    ///
+    /// Returns `None` when the attachment is not a string type (e.g. raw bytes).
+    /// Use [`Message::get_payload`] to retrieve raw binary attachments.
+    pub fn get_payload_as_string(&self) -> Result<Option<String>> {
+        let mut buffer: *const std::os::raw::c_char = ptr::null();
+        let rc = unsafe {
+            ffi::solClient_msg_getBinaryAttachmentString(self.get_raw_message_ptr(), &mut buffer)
+        };
+
+        let rc = SolClientReturnCode::from_raw(rc);
+        match rc {
+            SolClientReturnCode::NotFound => return Ok(None),
+            SolClientReturnCode::Ok => {}
+            _ => return Err(MessageError::FieldError("payload_as_string", rc)),
+        }
+
+        if buffer.is_null() {
+            return Ok(None);
+        }
+
+        let s = unsafe { CStr::from_ptr(buffer) }
+            .to_str()
+            .map_err(|_| MessageError::FieldConvertionError("payload_as_string"))?
+            .to_owned();
+        Ok(Some(s))
+    }
+
+    /// Get the broker receive timestamp.
+    ///
+    /// Alias for [`get_receive_timestamp`] using the shorter name expected by
+    /// the RisingWave connector.
+    pub fn get_rcv_timestamp(&self) -> Result<Option<std::time::SystemTime>> {
+        self.get_receive_timestamp()
+    }
+
     /// Returns `true` if the broker has redelivered this message after a previous
     /// delivery attempt was not acknowledged.
     pub fn is_redelivered(&self) -> bool {

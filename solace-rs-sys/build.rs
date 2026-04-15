@@ -150,8 +150,8 @@ fn main() {
         if #[cfg(target_os = "windows")] {
             println!("cargo:rustc-link-search=native={}", lib_dir.join("Win64").display());
             println!("cargo:rustc-link-search=native={}", lib_dir.join("Win64/third-party").display());
-            println!("cargo:rustc-link-lib=static=libcrypto_s");
-            println!("cargo:rustc-link-lib=static=libssl_s");
+            println!("cargo:rustc-link-lib=static=libcrypto");
+            println!("cargo:rustc-link-lib=static=libssl");
             println!("cargo:rustc-link-lib=static=libsolclient_s");
         } else {
             // From 7.33.x, OpenSSL is embedded in libsolclient.a — no separate ssl/crypto libs.

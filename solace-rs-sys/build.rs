@@ -3,24 +3,26 @@ use std::sync::Arc;
 use std::{env, io::Write, path::PathBuf};
 use ureq::Agent;
 
-// Tarball filename — used as the download filename and for the SOLCLIENT_TARBALL_URL fallback
-// on platforms where no official download URL is known.
+// Tarball filename — used as the local download filename.
 #[cfg(target_os = "windows")]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Win_vs2015_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Win_vs2015_7.33.2.3.tar.gz";
 
 #[cfg(target_os = "macos")]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Darwin-universal2_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Darwin-universal2_opt_7.33.2.3.tar.gz";
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-x86_64_opt_7.33.2.3.tar.gz";
+#[cfg(all(target_os = "linux", target_arch = "x86_64", not(target_env = "musl")))]
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux26-x86_64_opt_7.33.2.3.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Linux-aarch64_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux-aarch64_opt_7.33.2.3.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Linux_musl-x86_64_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux_musl-x86_64_opt_7.33.2.3.tar.gz";
 
-// Official Solace download URLs (where known). These resolve directly to the tarball.
+// Official Solace download URLs — all resolve to .tar.gz tarballs without authentication.
+#[cfg(target_os = "windows")]
+const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API_VS2015";
+
 #[cfg(target_os = "macos")]
 const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API_OSX";
 
@@ -30,11 +32,8 @@ const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
 const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API_MUSL";
 
-// Platforms without a known official URL — users must set SOLCLIENT_TARBALL_URL or SOLCLIENT_LIB_PATH.
-#[cfg(any(
-    target_os = "windows",
-    all(target_os = "linux", target_arch = "aarch64")
-))]
+// Linux aarch64 has no known official URL — users must set SOLCLIENT_TARBALL_URL or SOLCLIENT_LIB_PATH.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const SOLCLIENT_OFFICIAL_URL: &str = "";
 
 fn build_ureq_agent() -> Agent {
@@ -105,7 +104,7 @@ fn main() {
             .unwrap_or_else(|| {
                 if SOLCLIENT_OFFICIAL_URL.is_empty() {
                     panic!(
-                        "No official download URL is known for this platform.\n\
+                        "No official download URL is known for this platform (Linux aarch64).\n\
                          Set SOLCLIENT_TARBALL_URL to a URL pointing to the Solace C API {solclient_folder_name} \
                          tarball for your platform, or set SOLCLIENT_LIB_PATH to a directory containing \
                          the pre-extracted library files."
@@ -114,7 +113,7 @@ fn main() {
                 SOLCLIENT_OFFICIAL_URL.to_string()
             });
 
-        let solclient_tarball_path = out_dir.join(SOLCLIENT_GZ_PATH);
+        let solclient_tarball_path = out_dir.join(SOLCLIENT_ARCHIVE_PATH);
 
         if !solclient_folder_path.is_dir() {
             eprintln!(
@@ -151,9 +150,9 @@ fn main() {
         if #[cfg(target_os = "windows")] {
             println!("cargo:rustc-link-search=native={}", lib_dir.join("Win64").display());
             println!("cargo:rustc-link-search=native={}", lib_dir.join("Win64/third-party").display());
-            println!("cargo:rustc-link-lib-static=libcrypto_s");
-            println!("cargo:rustc-link-lib-static=libssl_s");
-            println!("cargo:rustc-link-lib=libsolclient_s");
+            println!("cargo:rustc-link-lib=static=libcrypto_s");
+            println!("cargo:rustc-link-lib=static=libssl_s");
+            println!("cargo:rustc-link-lib=static=libsolclient_s");
         } else {
             // From 7.33.x, OpenSSL is embedded in libsolclient.a — no separate ssl/crypto libs.
             println!("cargo:rustc-link-lib=static=solclient");

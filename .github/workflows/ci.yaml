@@ -32,8 +32,6 @@ jobs:
       - run: cargo test --doc
 
   # Build-only jobs for platforms that have no broker in CI.
-  # Windows requires SOLCLIENT_TARBALL_URL (set as a repo secret) since there
-  # is no official public download URL for that platform.
   build:
     strategy:
       matrix:
@@ -48,16 +46,10 @@ jobs:
           toolchain: ${{ env.rust_version }}
       - name: Build (default features)
         run: cargo build --all-targets --verbose
-        env:
-          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
       - name: Build (async feature)
         run: cargo build --features async --all-targets --verbose
-        env:
-          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
       - name: sys-crate tests
         run: cd solace-rs-sys && cargo test --release
-        env:
-          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
 
   # Full integration tests run on Linux where GitHub Actions supports
   # Docker service containers.

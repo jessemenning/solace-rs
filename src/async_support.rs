@@ -350,7 +350,7 @@ impl AsyncSession {
             user_p: event_user_p,
         };
         let mut func_info = ffi::solClient_flow_createFuncInfo_t {
-            rxInfo: ffi::solClient_flow_createRxCallbackFuncInfo_t::default(),
+            rxInfo: unsafe { mem::zeroed() },
             eventInfo: event_callback_info,
             rxMsgInfo: rx_msg_callback_info,
         };

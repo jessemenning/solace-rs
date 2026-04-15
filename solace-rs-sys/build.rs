@@ -153,6 +153,8 @@ fn main() {
             println!("cargo:rustc-link-lib=static=libcrypto");
             println!("cargo:rustc-link-lib=static=libssl");
             println!("cargo:rustc-link-lib=static=libsolclient_s");
+            // GetUserNameA is in advapi32 — not linked by default with MSVC
+            println!("cargo:rustc-link-lib=advapi32");
         } else {
             // From 7.33.x, OpenSSL is embedded in libsolclient.a — no separate ssl/crypto libs.
             println!("cargo:rustc-link-lib=static=solclient");

@@ -109,8 +109,12 @@ fn main() {
     let lib_dir = if env::var("SOLCLIENT_LIB_PATH").is_ok() {
         PathBuf::from(env::var("SOLCLIENT_LIB_PATH").unwrap())
     } else {
-        let solclient_tarball_url =
-            env::var("SOLCLIENT_TARBALL_URL").unwrap_or(solclient_tarball_default_url);
+        // Treat an empty SOLCLIENT_TARBALL_URL (e.g. an unset GitHub Actions secret
+        // that gets expanded to "") the same as the variable not being set at all.
+        let solclient_tarball_url = env::var("SOLCLIENT_TARBALL_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(solclient_tarball_default_url);
 
         let solclient_tarball_path = out_dir.join(SOLCLIENT_GZ_PATH);
 

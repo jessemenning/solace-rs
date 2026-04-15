@@ -7,22 +7,26 @@ on:
     branches: [main]
 
 env:
-  rust_version: 1.82
+  rust_version: "1.82"
 
 jobs:
   lint:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
           components: rustfmt, clippy
       - run: cargo fmt -- --check
       - run: cargo clippy -- -Dwarnings
+      - run: cargo clippy --features async -- -Dwarnings
       - run: cargo test --doc
 
-  test:
+  # Build-only jobs for platforms that have no broker in CI.
+  # Windows requires SOLCLIENT_TARBALL_URL (set as a repo secret) since there
+  # is no official public download URL for that platform.
+  build:
     strategy:
       matrix:
         include:
@@ -30,41 +34,83 @@ jobs:
           - os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
-      - run: cargo build --all-targets --verbose
-      - run: cargo test --release
-      - run: cd solace-rs-sys && cargo test --release
+      - name: Build (default features)
+        run: cargo build --all-targets --verbose
+        env:
+          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
+      - name: Build (async feature)
+        run: cargo build --features async --all-targets --verbose
+        env:
+          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
+      - name: sys-crate tests
+        run: cd solace-rs-sys && cargo test --release
+        env:
+          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
 
-
-# github actions only supports container services on ubuntu
+  # Full integration tests run on Linux where GitHub Actions supports
+  # Docker service containers.
   integration-test:
+    runs-on: ubuntu-22.04
     services:
       solace:
         image: solace/solace-pubsub-standard:10.5
         options: --shm-size=1gb
-        env: 
+        env:
           username_admin_globalaccesslevel: admin
           username_admin_password: admin
           system_scaling_maxconnectioncount: 100
         ports:
           - 55555:55555
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-    runs-on: ${{ matrix.os }}
+          - 8080:8080
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
-      - run: cargo build --all-targets --verbose
-      - run: cargo test --release -- --include-ignored
-        env:
-          SOLACE_HOST: 0.0.0.0
-          SOLACE_PORT: ${{ job.services.solace.ports[55555] }}
-      - run: cd solace-rs-sys && cargo test --release
 
+      - name: Wait for broker SEMP API
+        run: |
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:8080/SEMP/v2/config/ -u admin:admin > /dev/null 2>&1; do
+               echo "waiting for broker..."; sleep 3
+             done'
+
+      - name: Provision test queue
+        run: |
+          # Enable guaranteed messaging on the default client profile
+          curl -sf -X PATCH \
+            http://localhost:8080/SEMP/v2/config/msgVpns/default/clientProfiles/default \
+            -H "Content-Type: application/json" -u admin:admin \
+            -d '{
+              "allowGuaranteedMsgSendEnabled": true,
+              "allowGuaranteedMsgReceiveEnabled": true,
+              "allowGuaranteedEndpointCreateEnabled": true
+            }'
+          # Create the test queue used by flow tests (idempotent)
+          curl -sf -X POST \
+            http://localhost:8080/SEMP/v2/config/msgVpns/default/queues \
+            -H "Content-Type: application/json" -u admin:admin \
+            -d '{
+              "queueName": "rust-test-queue",
+              "accessType": "exclusive",
+              "ingressEnabled": true,
+              "egressEnabled": true,
+              "permission": "consume",
+              "maxMsgSpoolUsage": 100
+            }' || true
+
+      - name: Build
+        run: cargo build --all-targets --verbose
+
+      - name: Integration tests (sync)
+        run: cargo test --release -- --include-ignored
+
+      - name: Integration tests (async)
+        run: cargo test --features async --release --test async_integration_test -- --include-ignored
+
+      - name: sys-crate tests
+        run: cd solace-rs-sys && cargo test --release

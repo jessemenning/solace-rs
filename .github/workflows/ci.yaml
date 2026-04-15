@@ -104,10 +104,11 @@ jobs:
               "allowGuaranteedEndpointCreateEnabled": true
             }'
           # Create the test queue used by flow tests
-          curl -sf -X POST \
+          curl --fail-with-body -X POST \
             http://localhost:8080/SEMP/v2/config/msgVpns/default/queues \
             -H "Content-Type: application/json" -u admin:admin \
             -d '{
+              "msgVpnName": "default",
               "queueName": "rust-test-queue",
               "accessType": "exclusive",
               "ingressEnabled": true,

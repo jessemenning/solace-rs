@@ -138,10 +138,15 @@ fn main() {
         lib_dir.as_path().display()
     );
 
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            println!("cargo:rustc-link-lib=dylib=gssapi_krb5");
-        }
+    #[cfg(target_os = "macos")]
+    {
+        println!("cargo:rustc-link-lib=dylib=gssapi_krb5");
+        // macOS: libsolclient.a does NOT embed OpenSSL (unlike Linux 7.33+).
+        // Link against Homebrew OpenSSL 3 — arm64 path first, then x86_64 fallback.
+        println!("cargo:rustc-link-search=native=/opt/homebrew/opt/openssl@3/lib");
+        println!("cargo:rustc-link-search=native=/usr/local/opt/openssl@3/lib");
+        println!("cargo:rustc-link-lib=dylib=ssl");
+        println!("cargo:rustc-link-lib=dylib=crypto");
     }
 
     cfg_if::cfg_if! {

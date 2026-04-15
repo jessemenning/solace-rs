@@ -10,11 +10,11 @@ This is the most significant build-process change in 7.33.x.
 
 ### What changed
 
-| | 7.26.x | 7.33.x |
-|---|---|---|
-| OpenSSL version | 1.1 | 3.0.8 |
-| Delivery | Separate `.a` / `.so` files | **Embedded in `libsolclient.a`** |
-| Link targets needed | `solclient` + `solclientssl` + `crypto` + `ssl` | `solclient` only |
+| | 7.26.x | 7.33.x (Linux) | 7.33.x (macOS) |
+|---|---|---|---|
+| OpenSSL version | 1.1 | 3.0.8 | 3.x (Homebrew) |
+| Delivery | Separate `.a` / `.so` files | **Embedded in `libsolclient.a`** | External (Homebrew) |
+| Link targets needed | `solclient` + `solclientssl` + `crypto` + `ssl` | `solclient` only | `solclient` + `ssl` + `crypto` |
 
 ### Before (7.26.x link directives in `build.rs`)
 
@@ -25,14 +25,27 @@ cargo:rustc-link-lib=static=crypto
 cargo:rustc-link-lib=static=ssl
 ```
 
-### After (7.33.x)
+### After (7.33.x — Linux)
 
 ```
 cargo:rustc-link-lib=static=solclient
 ```
 
-OpenSSL 3.0.8 is statically compiled into `libsolclient.a`. No separate ssl/crypto link
-targets exist in the 7.33.x distribution. Linking against them produces a linker error.
+OpenSSL 3.0.8 is statically compiled into `libsolclient.a` on Linux. No separate ssl/crypto
+link targets exist in the Linux 7.33.x distribution.
+
+### After (7.33.x — macOS)
+
+```
+cargo:rustc-link-lib=static=solclient
+cargo:rustc-link-lib=dylib=ssl
+cargo:rustc-link-lib=dylib=crypto
+```
+
+On macOS, `libsolclient.a` does **not** embed OpenSSL. The library expects dynamic OpenSSL 3
+from Homebrew. `build.rs` adds both the arm64 (`/opt/homebrew/opt/openssl@3/lib`) and x86_64
+(`/usr/local/opt/openssl@3/lib`) Homebrew search paths so the correct dylib is found on
+either architecture.
 
 ### Security impact
 

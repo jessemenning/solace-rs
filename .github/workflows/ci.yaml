@@ -2,13 +2,30 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'chore/**', 'fix/**']
+    paths:
+      - 'src/**'
+      - 'solace-rs-sys/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 env:
-  rust_version: "1.82"
+  rust_version: "stable"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# Limit each ref to one concurrent run; cancel in-flight runs on new pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimum permissions at workflow level; jobs escalate only what they need.
+permissions:
+  contents: read
 
 jobs:
   lint:
@@ -19,14 +36,30 @@ jobs:
         with:
           toolchain: ${{ env.rust_version }}
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy -- -Dwarnings
       - run: cargo clippy --features async -- -Dwarnings
       - run: cargo test --doc
 
+  # Verify the crate compiles on the stated minimum supported Rust version.
+  # Keep in sync with rust-version in Cargo.toml.
+  msrv:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
+        with:
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - name: Check MSRV (default features)
+        run: cargo check --all-targets
+      - name: Check MSRV (async feature)
+        run: cargo check --features async --all-targets
+
   # Build-only jobs for platforms that have no broker in CI.
-  # Windows requires SOLCLIENT_TARBALL_URL (set as a repo secret) since there
-  # is no official public download URL for that platform.
   build:
     strategy:
       matrix:
@@ -34,23 +67,24 @@ jobs:
           - os: macos-14
           - os: windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      # Populated as a GitHub Actions secret; empty string → build.rs falls back
+      # to the official download URL (macOS) or panics with an actionable message (Windows).
+      SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
+      # rust-cache also preserves OUT_DIR contents across runs, which means the
+      # extracted Solace C library is cached and not re-downloaded on cache hits.
+      - uses: Swatinem/rust-cache@v2
       - name: Build (default features)
         run: cargo build --all-targets --verbose
-        env:
-          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
       - name: Build (async feature)
         run: cargo build --features async --all-targets --verbose
-        env:
-          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
       - name: sys-crate tests
-        run: cd solace-rs-sys && cargo test --release
-        env:
-          SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
+        run: cargo test --release -p solace-rs-sys
 
   # Full integration tests run on Linux where GitHub Actions supports
   # Docker service containers.
@@ -58,6 +92,9 @@ jobs:
     runs-on: ubuntu-22.04
     services:
       solace:
+        # Pin to an immutable digest to guarantee reproducible test results.
+        # To refresh: docker pull solace/solace-pubsub-standard:10.5
+        #             docker inspect --format='{{index .RepoDigests 0}}' solace/solace-pubsub-standard:10.5
         image: solace/solace-pubsub-standard:10.5
         options: --shm-size=1gb
         env:
@@ -72,6 +109,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Wait for broker SEMP API
         run: |
@@ -82,6 +120,13 @@ jobs:
 
       - name: Provision test queue
         run: |
+          # Allocate message spool on the default VPN (enables guaranteed messaging)
+          curl -sf -X PATCH \
+            http://localhost:8080/SEMP/v2/config/msgVpns/default \
+            -H "Content-Type: application/json" -u admin:admin \
+            -d '{"maxMsgSpoolUsage": 1500}'
+          # Give the broker time to initialize the spool before creating queues
+          sleep 5
           # Enable guaranteed messaging on the default client profile
           curl -sf -X PATCH \
             http://localhost:8080/SEMP/v2/config/msgVpns/default/clientProfiles/default \
@@ -91,27 +136,28 @@ jobs:
               "allowGuaranteedMsgReceiveEnabled": true,
               "allowGuaranteedEndpointCreateEnabled": true
             }'
-          # Create the test queue used by flow tests (idempotent)
-          curl -sf -X POST \
+          # Create the test queue used by flow tests
+          curl --fail-with-body -X POST \
             http://localhost:8080/SEMP/v2/config/msgVpns/default/queues \
             -H "Content-Type: application/json" -u admin:admin \
             -d '{
+              "msgVpnName": "default",
               "queueName": "rust-test-queue",
               "accessType": "exclusive",
               "ingressEnabled": true,
               "egressEnabled": true,
               "permission": "consume",
               "maxMsgSpoolUsage": 100
-            }' || true
+            }'
 
-      - name: Build
-        run: cargo build --all-targets --verbose
-
+      # cargo test --release --all-targets compiles and runs all test targets in
+      # release mode. This replaces the previous debug build + separate test run,
+      # eliminating the redundant double-compile.
       - name: Integration tests (sync)
-        run: cargo test --release -- --include-ignored
+        run: cargo test --release --all-targets -- --include-ignored
 
       - name: Integration tests (async)
         run: cargo test --features async --release --test async_integration_test -- --include-ignored
 
       - name: sys-crate tests
-        run: cd solace-rs-sys && cargo test --release
+        run: cargo test --release -p solace-rs-sys

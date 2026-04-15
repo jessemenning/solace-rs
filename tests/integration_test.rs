@@ -524,10 +524,7 @@ fn auto_generate_tx_rx_session_fields() {
                     break;
                 }
             }
-            Err(_) => panic!(
-                "timed out: received {}/{} messages",
-                rx_count, send_count
-            ),
+            Err(_) => panic!("timed out: received {}/{} messages", rx_count, send_count),
         }
     }
 

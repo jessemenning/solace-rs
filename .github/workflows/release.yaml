@@ -1,0 +1,74 @@
+name: release
+
+# Triggered by version tags: v0.9.0, v1.0.0, etc.
+# Publishes solace-rs-sys then solace-rs to crates.io, then creates a GitHub Release.
+#
+# Prerequisites (one-time setup):
+#   1. Add CARGO_REGISTRY_TOKEN as a repository secret (Settings → Secrets → Actions).
+#      Generate the token at https://crates.io/settings/tokens with "publish-new" + "publish-update" scopes.
+#   2. Ensure the crates are claimed on crates.io under the correct owner.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required to create the GitHub Release
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
+        with:
+          toolchain: stable
+
+      # Restore build cache to avoid recompiling the world during publish verification.
+      - uses: Swatinem/rust-cache@v2
+
+      # Secrets cannot be tested in `if:` conditions directly; use an env var instead.
+      - name: Check for crates.io token
+        id: check-token
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CARGO_REGISTRY_TOKEN is not set — skipping crates.io publish"
+          fi
+
+      # Publish the sys crate first; solace-rs depends on it.
+      # --no-verify skips the local build check — CI has already verified the build.
+      # continue-on-error: the sys crate version may already exist on crates.io if only
+      # the top-level crate version changed.
+      - name: Publish solace-rs-sys
+        if: steps.check-token.outputs.present == 'true'
+        continue-on-error: true
+        run: cargo publish -p solace-rs-sys --no-verify
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # crates.io indexes new crates asynchronously; allow time before the dependent publish.
+      - name: Wait for crates.io to index solace-rs-sys
+        if: steps.check-token.outputs.present == 'true'
+        run: sleep 30
+
+      - name: Publish solace-rs
+        if: steps.check-token.outputs.present == 'true'
+        run: cargo publish -p solace-rs --no-verify
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # Create a GitHub Release with auto-generated release notes from PR titles / commits.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

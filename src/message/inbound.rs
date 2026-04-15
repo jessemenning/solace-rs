@@ -263,8 +263,7 @@ impl InboundMessage {
     /// Returns `None` for direct messages (which have no message ID).
     pub fn get_msg_id(&self) -> Result<Option<u64>> {
         let mut msg_id: ffi::solClient_msgId_t = 0;
-        let rc =
-            unsafe { ffi::solClient_msg_getMsgId(self.get_raw_message_ptr(), &mut msg_id) };
+        let rc = unsafe { ffi::solClient_msg_getMsgId(self.get_raw_message_ptr(), &mut msg_id) };
 
         let rc = SolClientReturnCode::from_raw(rc);
         match rc {

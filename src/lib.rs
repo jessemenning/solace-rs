@@ -13,10 +13,10 @@ use std::fmt::{self, Display};
 use thiserror::Error;
 
 pub use crate::context::Context;
-pub use crate::message::MessageError;
 pub use crate::message::outbound::MessageBuilderError;
-pub use crate::session::Session;
+pub use crate::message::MessageError;
 pub use crate::session::builder::SessionBuilderError;
+pub use crate::session::Session;
 
 /// Top-level error type that wraps all sub-errors in this crate.
 ///

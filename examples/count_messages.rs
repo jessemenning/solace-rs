@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use solace_rs::{message::InboundMessage, session::SessionEvent, Context, SolaceLogLevel};
 
 fn main() {
-    let url = std::env::var("SOLACE_BROKER_URL")
-        .unwrap_or_else(|_| "tcp://localhost:55555".to_string());
+    let url =
+        std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".to_string());
     let vpn = std::env::var("SOLACE_BROKER_VPN").unwrap_or_else(|_| "default".to_string());
     let username =
         std::env::var("SOLACE_BROKER_USERNAME").unwrap_or_else(|_| "default".to_string());
@@ -50,7 +50,10 @@ fn main() {
     let session = builder.build().expect("connecting to broker");
     session.subscribe(">").expect("subscribing to >");
 
-    eprintln!("Subscribed to >. Waiting for messages (quiet period: {}s)...", quiet_secs);
+    eprintln!(
+        "Subscribed to >. Waiting for messages (quiet period: {}s)...",
+        quiet_secs
+    );
 
     loop {
         sleep(Duration::from_millis(200));
@@ -64,10 +67,16 @@ fn main() {
 
     let final_count = *count.lock().unwrap();
     if final_count == expected {
-        eprintln!("PASS: received {} messages (expected {})", final_count, expected);
+        eprintln!(
+            "PASS: received {} messages (expected {})",
+            final_count, expected
+        );
         std::process::exit(0);
     } else {
-        eprintln!("FAIL: received {} messages (expected {})", final_count, expected);
+        eprintln!(
+            "FAIL: received {} messages (expected {})",
+            final_count, expected
+        );
         std::process::exit(1);
     }
 }

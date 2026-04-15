@@ -49,7 +49,7 @@ SOLCLIENT_TARBALL_URL = "https://example.com/solclient-7.33.2.3.tar.gz"
 
 ## Examples
 
-You can find examples in the [examples folder](./examples). The examples assume you have solace running on `localhost:55554`. To run them:
+You can find examples in the [examples folder](./examples). The examples assume you have a broker running on `localhost:55555`. To run them:
 
 ```bash
 cargo run --example <example_name> -- <example_args>
@@ -57,12 +57,12 @@ cargo run --example <example_name> -- <example_args>
 
 ## Minimum supported Rust version (MSRV)
 
-The current minimum supported Rust version (MSRV) is 1.82
+The current minimum supported Rust version (MSRV) is 1.85.0
 
 ## OS Support / CI Tests
 
 - [x] linux
 - [x] linux-musl
-- [x] macos-12
+- [x] macos-14
 - [x] windows
 

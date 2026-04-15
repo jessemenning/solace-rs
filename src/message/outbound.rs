@@ -275,11 +275,7 @@ impl OutboundMessageBuilder {
                 let c_key = CString::new(key.as_str())?;
                 let c_value = CString::new(value.as_str())?;
                 unsafe {
-                    ffi::solClient_container_addString(
-                        map_p,
-                        c_value.as_ptr(),
-                        c_key.as_ptr(),
-                    );
+                    ffi::solClient_container_addString(map_p, c_value.as_ptr(), c_key.as_ptr());
                 }
             }
         }

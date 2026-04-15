@@ -134,7 +134,9 @@ async fn async_try_recv_with_message() {
     // WSS cloud brokers have ~100-200ms round-trip latency.
     tokio::time::sleep(MSG_DELIVERY_SLEEP).await;
 
-    let received = session.try_recv().expect("expected a message in the channel");
+    let received = session
+        .try_recv()
+        .expect("expected a message in the channel");
     assert_eq!(
         received.get_payload().unwrap().unwrap(),
         b"try-recv-payload"
@@ -248,7 +250,9 @@ async fn owned_flow_colocated_with_session() {
     let queue = queue_name();
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
-    let flow = session.create_flow(queue, AckMode::Auto).expect("create_flow");
+    let flow = session
+        .create_flow(queue, AckMode::Auto)
+        .expect("create_flow");
 
     // Store both in the same struct — lifetime-free, no borrow issues.
     let mut source = SolaceSource { session, flow };
@@ -282,7 +286,9 @@ async fn owned_flow_try_recv_empty() {
     let queue = queue_name();
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
-    let mut flow = session.create_flow(queue, AckMode::Auto).expect("create_flow");
+    let mut flow = session
+        .create_flow(queue, AckMode::Auto)
+        .expect("create_flow");
 
     assert!(flow.try_recv().is_err());
 }
@@ -297,7 +303,9 @@ async fn owned_flow_auto_ack() {
     let queue = queue_name();
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
-    let mut flow = session.create_flow(queue, AckMode::Auto).expect("create_flow");
+    let mut flow = session
+        .create_flow(queue, AckMode::Auto)
+        .expect("create_flow");
 
     let dest = MessageDestination::new(DestinationType::Queue, queue).unwrap();
     let msg = OutboundMessageBuilder::new()
@@ -314,7 +322,10 @@ async fn owned_flow_auto_ack() {
         .expect("channel closed");
 
     // In Auto mode the API acks implicitly – just verify delivery.
-    assert_eq!(received.get_payload().unwrap().unwrap(), b"auto-ack-payload");
+    assert_eq!(
+        received.get_payload().unwrap().unwrap(),
+        b"auto-ack-payload"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +379,9 @@ async fn disconnect_fails_with_active_flow() {
     let queue = queue_name();
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
-    let _flow = session.create_flow(queue, AckMode::Auto).expect("create_flow");
+    let _flow = session
+        .create_flow(queue, AckMode::Auto)
+        .expect("create_flow");
 
     // `_flow` is still alive; Arc refcount > 1; disconnect must fail.
     assert!(session.disconnect().is_err());
@@ -382,7 +395,9 @@ async fn disconnect_succeeds_after_flow_dropped() {
     let queue = queue_name();
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
-    let flow = session.create_flow(queue, AckMode::Auto).expect("create_flow");
+    let flow = session
+        .create_flow(queue, AckMode::Auto)
+        .expect("create_flow");
 
     drop(flow); // releases the Arc clone → refcount drops to 1
 

@@ -1,0 +1,31 @@
+name: security-audit
+
+on:
+  # Run weekly — off the :00/:30 marks to reduce scheduler collisions.
+  schedule:
+    - cron: '13 6 * * 1'
+  # Also run immediately when dependency manifests change.
+  push:
+    paths:
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'solace-rs-sys/Cargo.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
+        with:
+          toolchain: stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run security audit
+        run: cargo audit

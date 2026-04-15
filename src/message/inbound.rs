@@ -272,4 +272,64 @@ impl InboundMessage {
             _ => Err(MessageError::FieldError("msg_id", rc)),
         }
     }
+
+    /// Returns `true` if the broker has redelivered this message after a previous
+    /// delivery attempt was not acknowledged.
+    pub fn is_redelivered(&self) -> bool {
+        let rc = unsafe { ffi::solClient_msg_isRedelivered(self.get_raw_message_ptr()) };
+        rc != 0
+    }
+
+    /// Retrieves the Replication Group Message ID as a string.
+    ///
+    /// Returns `None` if the message does not carry a replication group message ID
+    /// (e.g. direct messages).
+    pub fn get_replication_group_message_id(&self) -> Result<Option<String>> {
+        let mut rgmid = ffi::solClient_replicationGroupMessageId_t {
+            replicationGroupMessageId: [0; 16],
+        };
+        let rc = unsafe {
+            ffi::solClient_msg_getReplicationGroupMessageId(
+                self.get_raw_message_ptr(),
+                &mut rgmid,
+                std::mem::size_of::<ffi::solClient_replicationGroupMessageId_t>(),
+            )
+        };
+        let rc = SolClientReturnCode::from_raw(rc);
+        match rc {
+            SolClientReturnCode::NotFound => return Ok(None),
+            SolClientReturnCode::Ok => {}
+            _ => {
+                return Err(MessageError::FieldError(
+                    "replication_group_message_id",
+                    rc,
+                ))
+            }
+        }
+
+        // Convert opaque struct to a 41-char string
+        // (SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_STRING_LENGTH = 41)
+        let mut buf = [0i8; 41];
+        let rc = unsafe {
+            ffi::solClient_replicationGroupMessageId_toString(
+                &mut rgmid,
+                std::mem::size_of::<ffi::solClient_replicationGroupMessageId_t>(),
+                buf.as_mut_ptr(),
+                buf.len(),
+            )
+        };
+        let rc = SolClientReturnCode::from_raw(rc);
+        if rc != SolClientReturnCode::Ok {
+            return Err(MessageError::FieldError(
+                "replication_group_message_id_to_string",
+                rc,
+            ));
+        }
+
+        let s = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }
+            .to_str()
+            .map_err(|_| MessageError::FieldConvertionError("replication_group_message_id"))?
+            .to_owned();
+        Ok(Some(s))
+    }
 }

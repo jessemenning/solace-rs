@@ -77,6 +77,7 @@ pub struct AsyncSessionBuilder {
     reapply_subscriptions: Option<bool>,
     connect_timeout_ms: Option<u64>,
     ssl_trust_store_dir: Option<Vec<u8>>,
+    client_name: Option<Vec<u8>>,
 }
 
 impl AsyncSessionBuilder {
@@ -92,6 +93,7 @@ impl AsyncSessionBuilder {
             reapply_subscriptions: None,
             connect_timeout_ms: None,
             ssl_trust_store_dir: None,
+            client_name: None,
         }
     }
 
@@ -145,6 +147,12 @@ impl AsyncSessionBuilder {
         self
     }
 
+    /// Client name to identify this session on the broker.
+    pub fn client_name<C: Into<Vec<u8>>>(mut self, client_name: C) -> Self {
+        self.client_name = Some(client_name.into());
+        self
+    }
+
     pub fn build(self) -> Result<AsyncSession, AsyncSessionError> {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -184,6 +192,9 @@ impl AsyncSessionBuilder {
         }
         if let Some(dir) = self.ssl_trust_store_dir {
             builder = builder.ssl_trust_store_dir(dir);
+        }
+        if let Some(name) = self.client_name {
+            builder = builder.client_name(name);
         }
 
         let inner = builder.build()?;

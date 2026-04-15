@@ -3,7 +3,7 @@
 Unofficial Rust client library for the Solace Platform event broker. Safe, idiomatic Rust wrapper around the Solace C library via FFI.
 
 - **Version:** 0.9.0
-- **MSRV:** 1.85.0
+- **MSRV:** 1.88.0
 - **License:** MIT
 - **Crates.io:** https://crates.io/crates/solace-rs
 - **Docs:** https://docs.rs/solace-rs
@@ -212,7 +212,7 @@ SOLACE_BROKER_URL=wss://... SOLACE_BROKER_VPN=... SOLACE_BROKER_USERNAME=... SOL
 
 `.github/workflows/ci.yaml` jobs:
 - **lint**: `cargo fmt`, `cargo clippy` (default + async), doc tests — runs on ubuntu-22.04
-- **msrv**: `cargo check` against the pinned MSRV toolchain (1.85.0) — default features + async
+- **msrv**: `cargo check` against the pinned MSRV toolchain (1.88.0) — default features + async
 - **build**: `cargo build` (default + async) + sys-crate tests — runs on macos-14 and windows-latest; requires `SOLCLIENT_TARBALL_URL` secret for Windows
 - **integration-test**: full test suite on ubuntu-22.04 with Docker Solace broker; provisions `rust-test-queue` via SEMP before tests
 

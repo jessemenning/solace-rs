@@ -47,6 +47,7 @@ solace-rs/
 ├── scripts/
 │   ├── configure-broker.sh # Provision queues/subscriptions via SEMP
 │   └── teardown-broker.sh  # Remove provisioned resources
+├── SOLCLIENT_7_33_UPGRADE.md  # Build-process changes for the 7.26→7.33 C API upgrade
 └── .github/workflows/ci.yaml
 ```
 
@@ -198,14 +199,25 @@ cargo test --features async
 
 CI runs tests against Solace standard edition 10.5 on Linux. macOS and Windows run build + release tests only (no broker).
 
+```bash
+# Async integration tests require a WSS broker URL at compile time (option_env!)
+SOLACE_BROKER_URL=wss://... SOLACE_BROKER_VPN=... SOLACE_BROKER_USERNAME=... SOLACE_BROKER_PASSWORD=... \
+  SOLACE_BROKER_TRUST_STORE_DIR=... \
+  cargo test --features async --release --test async_integration_test -- --include-ignored
+```
+
 ---
 
 ## CI
 
-`.github/workflows/ci.yaml` checks:
-- `cargo fmt`, `cargo clippy`, doc tests (Rust 1.82)
-- Build on macOS, Windows
-- Integration tests on Linux with Docker broker
+`.github/workflows/ci.yaml` jobs:
+- **lint**: `cargo fmt`, `cargo clippy` (default + async), doc tests — runs on ubuntu-22.04
+- **build**: `cargo build` (default + async) + sys-crate tests — runs on macos-14 and windows-latest; requires `SOLCLIENT_TARBALL_URL` secret for Windows
+- **integration-test**: full test suite on ubuntu-22.04 with Docker Solace broker; provisions `rust-test-queue` via SEMP before tests
+
+Triggers: push to `main`, `feat/**`, `chore/**`, `fix/**` (source files only — `src/**`, `solace-rs-sys/**`, `tests/**`, `Cargo.toml`, `Cargo.lock`, `.github/workflows/**`); any PR to `main`; manual `workflow_dispatch`.
+
+Doc-only commits (`*.md`, `examples/`) do **not** trigger a build.
 
 ---
 
@@ -216,6 +228,18 @@ CI runs tests against Solace standard edition 10.5 on Linux. macOS and Windows r
 - **Lifetime chain**: `Context → Session → Flow` — each must outlive its dependents.
 - **Tracing**: uses the `tracing` crate throughout; add `tracing-subscriber` in your app to capture logs.
 - **`SolaceLogLevel`** controls C-layer verbosity; set to `Warning` or higher in production.
+
+---
+
+## Git remotes
+
+| Remote | URL | Use |
+|--------|-----|-----|
+| `origin` | `https://github.com/asimsedhain/solace-rs.git` | Upstream — read-only |
+| `fork` | `https://github.com/jessemenning/solace-rs.git` | Public fork — push feature branches here |
+| `private` | `https://github.com/jessemenning/solace-rs-private.git` | Private scratch fork |
+
+Always push to `fork`. PRs flow from `fork` → `origin`.
 
 ---
 

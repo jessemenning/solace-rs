@@ -336,12 +336,7 @@ impl InboundMessage {
         match rc {
             SolClientReturnCode::NotFound => return Ok(None),
             SolClientReturnCode::Ok => {}
-            _ => {
-                return Err(MessageError::FieldError(
-                    "replication_group_message_id",
-                    rc,
-                ))
-            }
+            _ => return Err(MessageError::FieldError("replication_group_message_id", rc)),
         }
 
         // Convert opaque struct to a 41-char string

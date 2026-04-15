@@ -15,7 +15,10 @@ use std::{
 
 use solace_rs::{
     flow::{AckMode, BindEntity},
-    message::{DeliveryMode, DestinationType, InboundMessage, Message, MessageDestination, OutboundMessageBuilder},
+    message::{
+        DeliveryMode, DestinationType, InboundMessage, Message, MessageDestination,
+        OutboundMessageBuilder,
+    },
     session::SessionEvent,
     Context, SolaceError, SolaceLogLevel,
 };

@@ -137,8 +137,7 @@ where
             .on_message
             .ok_or_else(|| FlowError::MissingRequiredArgs("on_message".to_string()))?;
 
-        let c_bind_name =
-            CString::new(bind_name).map_err(FlowError::InvalidArgsNulError)?;
+        let c_bind_name = CString::new(bind_name).map_err(FlowError::InvalidArgsNulError)?;
 
         // Build flow properties array
         let bind_entity_id = match bind_entity {
@@ -152,8 +151,8 @@ where
         };
 
         let durable_val = if self.durable { b"1\0" } else { b"0\0" };
-        let window_size_str = CString::new(self.window_size.to_string())
-            .map_err(FlowError::InvalidArgsNulError)?;
+        let window_size_str =
+            CString::new(self.window_size.to_string()).map_err(FlowError::InvalidArgsNulError)?;
         let no_local_val = if self.no_local { b"1\0" } else { b"0\0" };
         let start_state_val = if self.start_state { b"1\0" } else { b"0\0" };
 
@@ -218,9 +217,11 @@ where
             // on_event is already Box<dyn FnMut(FlowEvent) + Send + 'flow>.
             // Wrap in a second Box so the C callback receives a stable *mut Box<dyn FnMut>.
             // One deref gives F = Box<dyn FnMut(FlowEvent)> which satisfies the trampoline bound.
-            let mut event_fn_box: Box<Box<dyn FnMut(FlowEvent) + Send + 'flow>> = Box::new(on_event);
+            let mut event_fn_box: Box<Box<dyn FnMut(FlowEvent) + Send + 'flow>> =
+                Box::new(on_event);
             let cb = on_flow_event_trampoline(&*event_fn_box);
-            let user_p = &mut *event_fn_box as *mut Box<dyn FnMut(FlowEvent) + Send + 'flow> as *mut std::os::raw::c_void;
+            let user_p = &mut *event_fn_box as *mut Box<dyn FnMut(FlowEvent) + Send + 'flow>
+                as *mut std::os::raw::c_void;
             (cb, user_p, Some(event_fn_box))
         } else {
             (

@@ -157,9 +157,7 @@ impl AsyncSessionBuilder {
         });
 
         let missing = |field: &'static str| {
-            AsyncSessionError::Builder(SessionBuilderError::MissingRequiredArgs(
-                field.to_string(),
-            ))
+            AsyncSessionError::Builder(SessionBuilderError::MissingRequiredArgs(field.to_string()))
         };
 
         let mut builder = self
@@ -248,9 +246,7 @@ impl AsyncSession {
     }
 
     /// Attempt to receive a message without blocking.
-    pub fn try_recv(
-        &mut self,
-    ) -> Result<InboundMessage, tokio::sync::mpsc::error::TryRecvError> {
+    pub fn try_recv(&mut self) -> Result<InboundMessage, tokio::sync::mpsc::error::TryRecvError> {
         self.msg_rx.try_recv()
     }
 
@@ -333,8 +329,7 @@ impl AsyncSession {
         // Deref two levels so F = BoxFlowMsgFn (not Box<BoxFlowMsgFn>), matching
         // the sync FlowBuilder pattern where user_p points to Box<F>.
         let msg_callback = on_flow_message_trampoline(&**msg_fn_box);
-        let msg_user_p =
-            &mut *msg_fn_box as *mut Box<BoxFlowMsgFn> as *mut std::os::raw::c_void;
+        let msg_user_p = &mut *msg_fn_box as *mut Box<BoxFlowMsgFn> as *mut std::os::raw::c_void;
 
         let mut event_fn_box: Box<Box<BoxFlowEventFn>> = Box::new(Box::new(on_event));
         let event_callback = on_flow_event_trampoline(&**event_fn_box);
@@ -402,8 +397,8 @@ impl AsyncSession {
                 SolClientReturnCode::Fail,
                 crate::SolClientSubCode {
                     subcode: 0,
-                    error_string:
-                        "cannot disconnect: drop all OwnedAsyncFlow instances first".to_string(),
+                    error_string: "cannot disconnect: drop all OwnedAsyncFlow instances first"
+                        .to_string(),
                 },
             )),
         }
@@ -464,9 +459,7 @@ impl OwnedAsyncFlow {
     }
 
     /// Attempt to receive a message without blocking.
-    pub fn try_recv(
-        &mut self,
-    ) -> Result<InboundMessage, tokio::sync::mpsc::error::TryRecvError> {
+    pub fn try_recv(&mut self) -> Result<InboundMessage, tokio::sync::mpsc::error::TryRecvError> {
         self.msg_rx.try_recv()
     }
 
@@ -488,8 +481,7 @@ impl OwnedAsyncFlow {
     /// This is an alternative to `ack()` that allows specifying whether the message
     /// was accepted, failed (redelivered), or rejected (moved to DMQ).
     pub fn settle(&self, msg_id: u64, outcome: MessageOutcome) -> Result<(), FlowError> {
-        let rc =
-            unsafe { ffi::solClient_flow_settleMsg(self.flow_ptr, msg_id, outcome.to_ffi()) };
+        let rc = unsafe { ffi::solClient_flow_settleMsg(self.flow_ptr, msg_id, outcome.to_ffi()) };
         let rc = SolClientReturnCode::from_raw(rc);
         if !rc.is_ok() {
             let subcode = crate::util::get_last_error_info();

@@ -107,9 +107,7 @@ where
     /// This is an alternative to `ack()` that allows specifying whether the message
     /// was accepted, failed (redelivered), or rejected (moved to DMQ).
     pub fn settle(&self, msg_id: u64, outcome: MessageOutcome) -> Result<(), FlowError> {
-        let rc = unsafe {
-            ffi::solClient_flow_settleMsg(self._flow_ptr, msg_id, outcome.to_ffi())
-        };
+        let rc = unsafe { ffi::solClient_flow_settleMsg(self._flow_ptr, msg_id, outcome.to_ffi()) };
 
         let rc = SolClientReturnCode::from_raw(rc);
         if !rc.is_ok() {

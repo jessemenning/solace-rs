@@ -969,6 +969,7 @@ pub struct _G_fpos_t {
     pub __pos: __off_t,
     pub __state: __mbstate_t,
 }
+#[cfg(unix)]
 #[test]
 fn bindgen_test_layout__G_fpos_t() {
     const UNINIT: ::std::mem::MaybeUninit<_G_fpos_t> = ::std::mem::MaybeUninit::uninit();
@@ -1011,6 +1012,7 @@ pub struct _G_fpos64_t {
     pub __pos: __off64_t,
     pub __state: __mbstate_t,
 }
+#[cfg(unix)]
 #[test]
 fn bindgen_test_layout__G_fpos64_t() {
     const UNINIT: ::std::mem::MaybeUninit<_G_fpos64_t> = ::std::mem::MaybeUninit::uninit();
@@ -1098,6 +1100,7 @@ pub struct _IO_FILE {
     pub _mode: ::std::os::raw::c_int,
     pub _unused2: [::std::os::raw::c_char; 20usize],
 }
+#[cfg(unix)]
 #[test]
 fn bindgen_test_layout__IO_FILE() {
     const UNINIT: ::std::mem::MaybeUninit<_IO_FILE> = ::std::mem::MaybeUninit::uninit();

@@ -93,28 +93,26 @@ fn main() {
     let solclient_folder_name = "solclient-7.33.2.3";
     let solclient_folder_path = out_dir.join(solclient_folder_name);
 
-    // Use the official Solace download URL when available; otherwise require the user to set
-    // SOLCLIENT_TARBALL_URL or SOLCLIENT_LIB_PATH for their platform.
-    let solclient_tarball_default_url = if !SOLCLIENT_OFFICIAL_URL.is_empty() {
-        SOLCLIENT_OFFICIAL_URL.to_string()
-    } else {
-        panic!(
-            "No official download URL is known for this platform.\n\
-             Set SOLCLIENT_TARBALL_URL to a URL pointing to the Solace C API {solclient_folder_name} \
-             tarball for your platform, or set SOLCLIENT_LIB_PATH to a directory containing \
-             the pre-extracted library files."
-        );
-    };
-
     let lib_dir = if env::var("SOLCLIENT_LIB_PATH").is_ok() {
         PathBuf::from(env::var("SOLCLIENT_LIB_PATH").unwrap())
     } else {
         // Treat an empty SOLCLIENT_TARBALL_URL (e.g. an unset GitHub Actions secret
         // that gets expanded to "") the same as the variable not being set at all.
+        // Only panic if neither SOLCLIENT_TARBALL_URL nor an official URL is available.
         let solclient_tarball_url = env::var("SOLCLIENT_TARBALL_URL")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or(solclient_tarball_default_url);
+            .unwrap_or_else(|| {
+                if SOLCLIENT_OFFICIAL_URL.is_empty() {
+                    panic!(
+                        "No official download URL is known for this platform.\n\
+                         Set SOLCLIENT_TARBALL_URL to a URL pointing to the Solace C API {solclient_folder_name} \
+                         tarball for your platform, or set SOLCLIENT_LIB_PATH to a directory containing \
+                         the pre-extracted library files."
+                    );
+                }
+                SOLCLIENT_OFFICIAL_URL.to_string()
+            });
 
         let solclient_tarball_path = out_dir.join(SOLCLIENT_GZ_PATH);
 

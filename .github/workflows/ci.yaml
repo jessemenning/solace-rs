@@ -94,6 +94,8 @@ jobs:
             http://localhost:8080/SEMP/v2/config/msgVpns/default \
             -H "Content-Type: application/json" -u admin:admin \
             -d '{"maxMsgSpoolUsage": 1500}'
+          # Give the broker time to initialize the spool before creating queues
+          sleep 5
           # Enable guaranteed messaging on the default client profile
           curl -sf -X PATCH \
             http://localhost:8080/SEMP/v2/config/msgVpns/default/clientProfiles/default \

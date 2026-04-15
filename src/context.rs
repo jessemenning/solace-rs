@@ -62,7 +62,7 @@ impl RawContext {
 
         let solace_context_raw_rc = unsafe {
             ffi::solClient_context_create(
-                context_props.as_mut_ptr(),
+                context_props.as_mut_ptr() as *mut *mut _,
                 &mut ctx,
                 &mut context_func,
                 mem::size_of::<ffi::solClient_context_createRegisterFdFuncInfo>(),

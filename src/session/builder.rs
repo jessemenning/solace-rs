@@ -239,7 +239,7 @@ where
         let context_ptr = self.context.raw.lock().unwrap();
         let session_create_raw_rc = unsafe {
             ffi::solClient_session_create(
-                raw.as_mut_ptr(),
+                raw.as_mut_ptr() as *mut *mut _,
                 context_ptr.ctx,
                 &mut session_pt,
                 &mut session_func_info,

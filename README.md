@@ -5,7 +5,7 @@
 [![ci](https://github.com/asimsedhain/solace-rs/actions/workflows/ci.yaml/badge.svg)](https://github.com/asimsedhain/solace-rs/actions/workflows/ci.yaml)
 
 
-The Unofficial Solace PubSub+ Rust Client Library.
+The Unofficial Solace Platform Rust Client Library.
 
 Focuses on providing safe and idiomatic rust API over the C Solace library.
 
@@ -28,28 +28,22 @@ cargo add solace-rs
 ```
 
 ### Configuring Solace Library Link
-Right now, the library only supports static linking with solace-c-library.
-You can provide either a path, a url to download the library from or default (will download from default library source). The prority is also in the same order if multiple are defined.
 
-#### Lib Path
-You can configure the lib path to use for the solace c library.
-It must contain the solcient object files.
-Just add the following [configurable-env](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#configurable-env) to your [config.toml file](https://doc.rust-lang.org/cargo/reference/config.html)
+Only static linking is supported. The build downloads the Solace C API 7.33.2.3 automatically for Linux x64, macOS, and musl. Priority order (first found wins):
 
-```toml
-[env]
-SOLCLIENT_LIB_PATH=path_to_c_library_with_object_files
+1. **`SOLCLIENT_LIB_PATH`** — path to a directory containing the pre-extracted C library files
+2. **`SOLCLIENT_TARBALL_URL`** — URL to download a tarball (required for Windows and Linux aarch64, which have no public download URL)
+3. **Default** — downloads from the official Solace download URL for your platform
 
-```
-
-#### URL
-You can configure the url to use for downloading the solace c library.
-Just add the following [configurable-env](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#configurable-env) to your [config.toml file](https://doc.rust-lang.org/cargo/reference/config.html)
+Set via [configurable-env](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#configurable-env) in your [`.cargo/config.toml`](https://doc.rust-lang.org/cargo/reference/config.html):
 
 ```toml
 [env]
-SOLCLIENT_TARBALL_URL=link_to_c_library_tar_ball
+# Option 1: pre-extracted library
+SOLCLIENT_LIB_PATH = "/path/to/solclient/lib"
 
+# Option 2: custom tarball URL
+SOLCLIENT_TARBALL_URL = "https://example.com/solclient-7.33.2.3.tar.gz"
 ```
 
 

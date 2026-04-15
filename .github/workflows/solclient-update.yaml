@@ -1,0 +1,81 @@
+name: solclient-version-check
+
+# Probes the official Solace download URL weekly to detect C API updates.
+# When a new version is found, opens a PR that bumps the pinned version in
+# build.rs and CLAUDE.md.
+
+on:
+  schedule:
+    - cron: '23 7 * * 2'  # Every Tuesday at 07:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  check-and-update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get current pinned version
+        id: current
+        run: |
+          # The 4-part version (e.g. 7.33.2.3) appears in every archive filename
+          # constant and in solclient_folder_name — grab the first occurrence.
+          VERSION=$(grep -oP '\d+\.\d+\.\d+\.\d+' solace-rs-sys/build.rs | head -1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Get latest version from official download URL
+        id: latest
+        run: |
+          # Follow all redirects; the final URL contains the versioned tarball name.
+          FINAL_URL=$(curl -sL -o /dev/null -w '%{url_effective}' \
+            "https://products.solace.com/download/C_API_LINUX64")
+          VERSION=$(echo "$FINAL_URL" | grep -oP '\d+\.\d+\.\d+\.\d+')
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: could not extract version from redirect URL: $FINAL_URL" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update version references
+        if: steps.latest.outputs.version != steps.current.outputs.version
+        run: |
+          OLD="${{ steps.current.outputs.version }}"
+          NEW="${{ steps.latest.outputs.version }}"
+
+          # Escape dots so sed treats them as literals, not regex wildcards.
+          OLD_RE=$(printf '%s' "$OLD" | sed 's/\./\\./g')
+
+          sed -i "s/${OLD_RE}/${NEW}/g" solace-rs-sys/build.rs
+          sed -i "s/${OLD_RE}/${NEW}/g" CLAUDE.md
+
+      - name: Create Pull Request
+        if: steps.latest.outputs.version != steps.current.outputs.version
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(deps): bump Solace C API ${{ steps.current.outputs.version }} → ${{ steps.latest.outputs.version }}"
+          branch: chore/solclient-${{ steps.latest.outputs.version }}
+          title: "chore(deps): bump Solace C API ${{ steps.current.outputs.version }} → ${{ steps.latest.outputs.version }}"
+          body: |
+            Automated version bump detected via the official Solace download URL.
+
+            | | Version |
+            |---|---|
+            | Previous | `${{ steps.current.outputs.version }}` |
+            | New | `${{ steps.latest.outputs.version }}` |
+
+            **Files changed:** `solace-rs-sys/build.rs`, `CLAUDE.md`
+
+            **Before merging:**
+            - [ ] Check [Solace C API release notes](https://docs.solace.com/Release-Notes/C-API-Release-Notes.htm) for breaking changes or library structure changes
+            - [ ] Verify archive filenames in `build.rs` match the new tarballs (the platform prefix, e.g. `Linux26-x86_64`, can change between major versions)
+            - [ ] Update the `SOLCLIENT_TARBALL_URL` repository secret for Windows builds to point to the new Windows tarball (this cannot be done automatically)
+            - [ ] Confirm CI passes — the integration tests will rebuild against the new library
+          labels: dependencies

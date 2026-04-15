@@ -3,7 +3,7 @@
 Unofficial Rust client library for the Solace Platform event broker. Safe, idiomatic Rust wrapper around the Solace C library via FFI.
 
 - **Version:** 0.9.0
-- **MSRV:** 1.82.0
+- **MSRV:** 1.85.0
 - **License:** MIT
 - **Crates.io:** https://crates.io/crates/solace-rs
 - **Docs:** https://docs.rs/solace-rs

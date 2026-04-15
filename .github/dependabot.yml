@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Keep GitHub Actions pinned to latest versions (PRs auto-created weekly).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+
+  # Keep Cargo dependencies up to date across the workspace.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+    # Group patch updates to reduce PR noise.
+    groups:
+      patch-updates:
+        update-types:
+          - "patch"

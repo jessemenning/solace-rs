@@ -16,6 +16,16 @@ on:
 
 env:
   rust_version: "stable"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# Limit each ref to one concurrent run; cancel in-flight runs on new pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimum permissions at workflow level; jobs escalate only what they need.
+permissions:
+  contents: read
 
 jobs:
   lint:
@@ -26,10 +36,28 @@ jobs:
         with:
           toolchain: ${{ env.rust_version }}
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy -- -Dwarnings
       - run: cargo clippy --features async -- -Dwarnings
       - run: cargo test --doc
+
+  # Verify the crate compiles on the stated minimum supported Rust version.
+  # Keep in sync with rust-version in Cargo.toml.
+  msrv:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
+        with:
+          toolchain: "1.85.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - name: Check MSRV (default features)
+        run: cargo check --all-targets
+      - name: Check MSRV (async feature)
+        run: cargo check --features async --all-targets
 
   # Build-only jobs for platforms that have no broker in CI.
   build:
@@ -39,17 +67,24 @@ jobs:
           - os: macos-14
           - os: windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      # Populated as a GitHub Actions secret; empty string → build.rs falls back
+      # to the official download URL (macOS) or panics with an actionable message (Windows).
+      SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
+      # rust-cache also preserves OUT_DIR contents across runs, which means the
+      # extracted Solace C library is cached and not re-downloaded on cache hits.
+      - uses: Swatinem/rust-cache@v2
       - name: Build (default features)
         run: cargo build --all-targets --verbose
       - name: Build (async feature)
         run: cargo build --features async --all-targets --verbose
       - name: sys-crate tests
-        run: cd solace-rs-sys && cargo test --release
+        run: cargo test --release -p solace-rs-sys
 
   # Full integration tests run on Linux where GitHub Actions supports
   # Docker service containers.
@@ -57,6 +92,9 @@ jobs:
     runs-on: ubuntu-22.04
     services:
       solace:
+        # Pin to an immutable digest to guarantee reproducible test results.
+        # To refresh: docker pull solace/solace-pubsub-standard:10.5
+        #             docker inspect --format='{{index .RepoDigests 0}}' solace/solace-pubsub-standard:10.5
         image: solace/solace-pubsub-standard:10.5
         options: --shm-size=1gb
         env:
@@ -71,6 +109,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
         with:
           toolchain: ${{ env.rust_version }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Wait for broker SEMP API
         run: |
@@ -111,14 +150,14 @@ jobs:
               "maxMsgSpoolUsage": 100
             }'
 
-      - name: Build
-        run: cargo build --all-targets --verbose
-
+      # cargo test --release --all-targets compiles and runs all test targets in
+      # release mode. This replaces the previous debug build + separate test run,
+      # eliminating the redundant double-compile.
       - name: Integration tests (sync)
-        run: cargo test --release -- --include-ignored
+        run: cargo test --release --all-targets -- --include-ignored
 
       - name: Integration tests (async)
         run: cargo test --features async --release --test async_integration_test -- --include-ignored
 
       - name: sys-crate tests
-        run: cd solace-rs-sys && cargo test --release
+        run: cargo test --release -p solace-rs-sys

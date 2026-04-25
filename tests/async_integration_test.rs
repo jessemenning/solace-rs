@@ -256,6 +256,7 @@ async fn owned_flow_colocated_with_session() {
 
     // Store both in the same struct — lifetime-free, no borrow issues.
     let mut source = SolaceSource { session, flow };
+    source.flow.start().expect("flow start");
 
     let dest = MessageDestination::new(DestinationType::Queue, queue).unwrap();
     let msg = OutboundMessageBuilder::new()
@@ -306,6 +307,7 @@ async fn owned_flow_auto_ack() {
     let mut flow = session
         .create_flow(queue, AckMode::Auto)
         .expect("create_flow");
+    flow.start().expect("flow start");
 
     let dest = MessageDestination::new(DestinationType::Queue, queue).unwrap();
     let msg = OutboundMessageBuilder::new()
@@ -341,6 +343,7 @@ async fn owned_flow_client_ack() {
     let mut flow = session
         .create_flow(queue, AckMode::Client)
         .expect("create_flow");
+    flow.start().expect("flow start");
 
     let dest = MessageDestination::new(DestinationType::Queue, queue).unwrap();
     let msg = OutboundMessageBuilder::new()

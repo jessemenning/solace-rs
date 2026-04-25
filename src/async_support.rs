@@ -4,19 +4,25 @@ use crate::message::{InboundMessage, OutboundMessage};
 use crate::session::builder::SessionBuilderError;
 use crate::session::event::SessionEvent;
 use crate::session::Session;
-use crate::util::{on_flow_event_trampoline, on_flow_message_trampoline};
+use crate::util::{on_flow_event_trampoline, on_flow_message_trampoline, CURRENT_EVENT_CORR_PTR};
 use crate::{FlowError, SessionError, SolClientReturnCode};
 use solace_rs_sys as ffi;
+use std::collections::HashMap;
 use std::mem;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{self, Poll};
+use tokio::sync::oneshot;
 use tracing::warn;
 
 type BoxMsgFn = Box<dyn FnMut(InboundMessage) + Send + 'static>;
 type BoxEventFn = Box<dyn FnMut(SessionEvent) + Send + 'static>;
-type BoxFlowMsgFn = Box<dyn FnMut(InboundMessage) + Send + 'static>;
 type BoxFlowEventFn = Box<dyn FnMut(FlowEvent) + Send + 'static>;
+
+/// Default guaranteed-messaging flow window: number of unacked messages the broker
+/// will push before waiting for acknowledgements.
+const FLOW_WINDOW_SIZE: &[u8] = b"255\0";
 
 /// Shared ownership of the underlying session.
 ///
@@ -157,11 +163,43 @@ impl AsyncSessionBuilder {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let ack_senders: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<(), SessionError>>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let ack_senders_for_closure = Arc::clone(&ack_senders);
+
         let on_message: BoxMsgFn = Box::new(move |msg| {
             let _ = msg_tx.send(msg);
         });
         let on_event: BoxEventFn = Box::new(move |event| {
-            let _ = event_tx.send(event);
+            match event {
+                SessionEvent::Acknowledgement | SessionEvent::RejectedMsgError => {
+                    // Read the correlation pointer set by static_on_event via thread-local.
+                    // Safety: pointer is valid for the duration of the SDK callback, which
+                    // encompasses this synchronous closure call.
+                    // The tag is always written as u64::to_ne_bytes() (8 bytes) in
+                    // publish_with_ack; no other code in this crate calls set_correlation_tag.
+                    let corr_p = CURRENT_EVENT_CORR_PTR.with(|c| c.get());
+                    if !corr_p.is_null() {
+                        let corr_id =
+                            unsafe { u64::from_ne_bytes(*(corr_p as *const [u8; 8])) };
+                        if let Some(sender) =
+                            ack_senders_for_closure.lock().unwrap().remove(&corr_id)
+                        {
+                            let result = match event {
+                                SessionEvent::Acknowledgement => Ok(()),
+                                _ => Err(SessionError::AcknowledgementRejected),
+                            };
+                            let _ = sender.send(result);
+                            return;
+                        }
+                    }
+                    // Forward to event channel if not an ACK we were tracking.
+                    let _ = event_tx.send(event);
+                }
+                _ => {
+                    let _ = event_tx.send(event);
+                }
+            }
         });
 
         let missing = |field: &'static str| {
@@ -203,6 +241,8 @@ impl AsyncSessionBuilder {
             inner: Arc::new(Mutex::new(inner)),
             msg_rx,
             event_rx,
+            ack_senders,
+            next_corr_id: AtomicU64::new(1),
         })
     }
 }
@@ -224,6 +264,8 @@ pub struct AsyncSession {
     inner: SharedSession,
     msg_rx: tokio::sync::mpsc::UnboundedReceiver<InboundMessage>,
     event_rx: tokio::sync::mpsc::UnboundedReceiver<SessionEvent>,
+    ack_senders: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<(), SessionError>>>>>,
+    next_corr_id: AtomicU64,
 }
 
 impl AsyncSession {
@@ -271,6 +313,32 @@ impl AsyncSession {
         self.inner.lock().unwrap().publish(message)
     }
 
+    /// Publish a message and return a future that resolves when the broker acknowledges it.
+    ///
+    /// Only meaningful for `PERSISTENT` and `NON_PERSISTENT` delivery modes; for `DIRECT`
+    /// the broker never sends acknowledgements and the receiver will never resolve.
+    ///
+    /// The returned `oneshot::Receiver` yields `Ok(())` on ACK or
+    /// `Err(SessionError::AcknowledgementRejected)` if the broker rejects the message.
+    pub fn publish_with_ack(
+        &self,
+        message: OutboundMessage,
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+        let corr_id = self.next_corr_id.fetch_add(1, Ordering::Relaxed);
+        message.set_correlation_tag(&corr_id.to_ne_bytes());
+
+        let (tx, rx) = oneshot::channel();
+        self.ack_senders.lock().unwrap().insert(corr_id, tx);
+
+        match self.publish(message) {
+            Ok(()) => Ok(rx),
+            Err(e) => {
+                self.ack_senders.lock().unwrap().remove(&corr_id);
+                Err(e)
+            }
+        }
+    }
+
     /// Subscribe to a topic.
     pub fn subscribe<T: Into<Vec<u8>>>(&self, topic: T) -> Result<(), SessionError> {
         self.inner.lock().unwrap().subscribe(topic)
@@ -296,7 +364,7 @@ impl AsyncSession {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let on_message: BoxFlowMsgFn = Box::new(move |msg: InboundMessage| {
+        let on_message: BoxMsgFn = Box::new(move |msg: InboundMessage| {
             let _ = msg_tx.send(msg);
         });
         let on_event: BoxFlowEventFn = Box::new(move |event: FlowEvent| {
@@ -312,9 +380,9 @@ impl AsyncSession {
             AckMode::Client => ffi::SOLCLIENT_FLOW_PROP_ACKMODE_CLIENT,
         };
         let durable_val: &[u8] = b"1\0";
-        let window_size_str =
-            std::ffi::CString::new("255").map_err(FlowError::InvalidArgsNulError)?;
-        let start_state_val: &[u8] = b"1\0";
+        // Flow is created in the stopped state; callers must invoke .start() explicitly.
+        // This matches the behaviour of the synchronous FlowBuilder.
+        let start_state_val: &[u8] = b"0\0";
 
         let props: Vec<*const std::os::raw::c_char> = vec![
             ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_ID.as_ptr() as *const _,
@@ -326,7 +394,7 @@ impl AsyncSession {
             ffi::SOLCLIENT_FLOW_PROP_ACKMODE.as_ptr() as *const _,
             ack_mode_val.as_ptr() as *const _,
             ffi::SOLCLIENT_FLOW_PROP_WINDOWSIZE.as_ptr() as *const _,
-            window_size_str.as_ptr(),
+            FLOW_WINDOW_SIZE.as_ptr() as *const _,
             ffi::SOLCLIENT_FLOW_PROP_START_STATE.as_ptr() as *const _,
             start_state_val.as_ptr() as *const _,
             std::ptr::null(),
@@ -336,11 +404,11 @@ impl AsyncSession {
         // The double-boxing pattern mirrors FlowBuilder::build(): the outer Box gives us a stable
         // heap address for the inner Box<dyn FnMut> fat pointer, which is what the C callback
         // receives as user_p.
-        let mut msg_fn_box: Box<Box<BoxFlowMsgFn>> = Box::new(Box::new(on_message));
-        // Deref two levels so F = BoxFlowMsgFn (not Box<BoxFlowMsgFn>), matching
+        let mut msg_fn_box: Box<Box<BoxMsgFn>> = Box::new(Box::new(on_message));
+        // Deref two levels so F = BoxMsgFn (not Box<BoxMsgFn>), matching
         // the sync FlowBuilder pattern where user_p points to Box<F>.
         let msg_callback = on_flow_message_trampoline(&**msg_fn_box);
-        let msg_user_p = &mut *msg_fn_box as *mut Box<BoxFlowMsgFn> as *mut std::os::raw::c_void;
+        let msg_user_p = &mut *msg_fn_box as *mut Box<BoxMsgFn> as *mut std::os::raw::c_void;
 
         let mut event_fn_box: Box<Box<BoxFlowEventFn>> = Box::new(Box::new(on_event));
         let event_callback = on_flow_event_trampoline(&**event_fn_box);
@@ -389,7 +457,7 @@ impl AsyncSession {
             _msg_fn_ptr: msg_fn_box,
             _event_fn_ptr: event_fn_box,
             msg_rx,
-            _event_rx: event_rx,
+            event_rx,
         })
     }
 
@@ -404,14 +472,7 @@ impl AsyncSession {
                 .into_inner()
                 .unwrap_or_else(|e| e.into_inner())
                 .disconnect(),
-            Err(_) => Err(SessionError::DisconnectError(
-                SolClientReturnCode::Fail,
-                crate::SolClientSubCode {
-                    subcode: 0,
-                    error_string: "cannot disconnect: drop all OwnedAsyncFlow instances first"
-                        .to_string(),
-                },
-            )),
+            Err(_) => Err(SessionError::ActiveFlowsOnDisconnect),
         }
     }
 }
@@ -450,12 +511,12 @@ pub struct OwnedAsyncFlow {
     _session_guard: SharedSession,
     /// Keeps the message callback closure alive; address must not change after creation.
     #[allow(clippy::redundant_allocation)]
-    _msg_fn_ptr: Box<Box<BoxFlowMsgFn>>,
+    _msg_fn_ptr: Box<Box<BoxMsgFn>>,
     /// Keeps the event callback closure alive.
-    #[allow(dead_code, clippy::redundant_allocation)]
+    #[allow(clippy::redundant_allocation)]
     _event_fn_ptr: Box<Box<BoxFlowEventFn>>,
     msg_rx: tokio::sync::mpsc::UnboundedReceiver<InboundMessage>,
-    _event_rx: tokio::sync::mpsc::UnboundedReceiver<FlowEvent>,
+    event_rx: tokio::sync::mpsc::UnboundedReceiver<FlowEvent>,
 }
 
 // Safety: `flow_ptr` is a C opaque pointer accessed only through &self/&mut self.
@@ -472,6 +533,20 @@ impl OwnedAsyncFlow {
     /// Attempt to receive a message without blocking.
     pub fn try_recv(&mut self) -> Result<InboundMessage, tokio::sync::mpsc::error::TryRecvError> {
         self.msg_rx.try_recv()
+    }
+
+    /// Receive the next flow event asynchronously.
+    ///
+    /// Flow events include bind success/failure, reconnect, and up/down notifications.
+    pub async fn recv_event(&mut self) -> Option<FlowEvent> {
+        self.event_rx.recv().await
+    }
+
+    /// Attempt to receive a flow event without blocking.
+    pub fn try_recv_event(
+        &mut self,
+    ) -> Result<FlowEvent, tokio::sync::mpsc::error::TryRecvError> {
+        self.event_rx.try_recv()
     }
 
     /// Acknowledge a guaranteed message by its message ID.

@@ -6,7 +6,17 @@ use crate::message::InboundMessage;
 use crate::session::SessionEvent;
 use crate::SolClientSubCode;
 use solace_rs_sys as ffi;
+use std::cell::Cell;
 use std::mem;
+
+// Set to `correlation_p` from the active session event callback before the user closure
+// is invoked, then cleared afterward. Allows ACK handlers in `async_support.rs` to
+// read the correlation pointer without changing the `FnMut(SessionEvent)` closure
+// signature. Only valid during the synchronous invocation of that closure.
+thread_local! {
+    pub(crate) static CURRENT_EVENT_CORR_PTR: Cell<*mut std::ffi::c_void> =
+        const { Cell::new(std::ptr::null_mut()) };
+}
 
 pub(crate) fn on_message_trampoline<'s, F>(
     _closure: &'s F,
@@ -90,9 +100,13 @@ extern "C" fn static_on_event<'s, F>(
         return;
     };
 
-    let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
+    let corr_p = unsafe { (*event_info_p).correlation_p };
+    CURRENT_EVENT_CORR_PTR.with(|c| c.set(corr_p));
 
+    let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
     user_closure(event);
+
+    CURRENT_EVENT_CORR_PTR.with(|c| c.set(std::ptr::null_mut()));
 }
 
 pub(crate) fn on_flow_message_trampoline<'s, F>(

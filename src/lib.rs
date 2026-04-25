@@ -35,6 +35,9 @@ pub enum SolaceError {
     Message(#[from] MessageError),
     #[error(transparent)]
     MessageBuilder(#[from] MessageBuilderError),
+    #[cfg(feature = "async")]
+    #[error(transparent)]
+    AsyncSession(#[from] async_support::AsyncSessionError),
 }
 
 enum_from_primitive! {
@@ -165,4 +168,8 @@ pub enum SessionError {
     PublishError(SolClientReturnCode, SolClientSubCode),
     #[error("could not send request. SolClient return code: {0}")]
     RequestError(SolClientReturnCode, SolClientSubCode),
+    #[error("broker rejected guaranteed message")]
+    AcknowledgementRejected,
+    #[error("cannot disconnect: drop all OwnedAsyncFlow instances first")]
+    ActiveFlowsOnDisconnect,
 }

@@ -21,6 +21,10 @@ pub enum MessageBuilderError {
     TimestampError,
     #[error("solClient message aloc failed")]
     MessageAlocFailure,
+    #[error("failed to create user property map")]
+    UserPropertyMapFailure,
+    #[error("failed to add user property '{0}'")]
+    UserPropertyAddFailure(String),
 }
 
 type Result<T> = std::result::Result<T, MessageBuilderError>;
@@ -47,6 +51,23 @@ impl Drop for OutboundMessage {
 impl Message for OutboundMessage {
     unsafe fn get_raw_message_ptr(&self) -> ffi::solClient_opaqueMsg_pt {
         self._msg_ptr
+    }
+}
+
+impl OutboundMessage {
+    /// Copy `tag` bytes into the message as the correlation tag for delivery ACK tracking.
+    ///
+    /// The SDK stores the copy internally; callers do not need to keep `tag` alive after
+    /// this call returns. The pointer is returned in the session event callback
+    /// (`correlation_p`) when the broker acknowledges or rejects the message.
+    pub(crate) fn set_correlation_tag(&self, tag: &[u8]) {
+        unsafe {
+            ffi::solClient_msg_setCorrelationTag(
+                self._msg_ptr,
+                tag.as_ptr() as *const c_void,
+                tag.len() as u32,
+            );
+        }
     }
 }
 
@@ -269,13 +290,17 @@ impl OutboundMessageBuilder {
             };
             let rc = SolClientReturnCode::from_raw(rc);
             if !rc.is_ok() {
-                return Err(MessageBuilderError::MessageAlocFailure);
+                return Err(MessageBuilderError::UserPropertyMapFailure);
             }
             for (key, value) in &props {
                 let c_key = CString::new(key.as_str())?;
                 let c_value = CString::new(value.as_str())?;
-                unsafe {
-                    ffi::solClient_container_addString(map_p, c_value.as_ptr(), c_key.as_ptr());
+                let rc = unsafe {
+                    ffi::solClient_container_addString(map_p, c_value.as_ptr(), c_key.as_ptr())
+                };
+                let rc = SolClientReturnCode::from_raw(rc);
+                if !rc.is_ok() {
+                    return Err(MessageBuilderError::UserPropertyAddFailure(key.clone()));
                 }
             }
         }

@@ -180,8 +180,7 @@ impl AsyncSessionBuilder {
                     // publish_with_ack; no other code in this crate calls set_correlation_tag.
                     let corr_p = CURRENT_EVENT_CORR_PTR.with(|c| c.get());
                     if !corr_p.is_null() {
-                        let corr_id =
-                            unsafe { u64::from_ne_bytes(*(corr_p as *const [u8; 8])) };
+                        let corr_id = unsafe { u64::from_ne_bytes(*(corr_p as *const [u8; 8])) };
                         if let Some(sender) =
                             ack_senders_for_closure.lock().unwrap().remove(&corr_id)
                         {
@@ -543,9 +542,7 @@ impl OwnedAsyncFlow {
     }
 
     /// Attempt to receive a flow event without blocking.
-    pub fn try_recv_event(
-        &mut self,
-    ) -> Result<FlowEvent, tokio::sync::mpsc::error::TryRecvError> {
+    pub fn try_recv_event(&mut self) -> Result<FlowEvent, tokio::sync::mpsc::error::TryRecvError> {
         self.event_rx.try_recv()
     }
 

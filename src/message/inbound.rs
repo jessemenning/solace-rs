@@ -339,9 +339,9 @@ impl InboundMessage {
             _ => return Err(MessageError::FieldError("replication_group_message_id", rc)),
         }
 
-        // Convert opaque struct to a 41-char string
-        // (SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_STRING_LENGTH = 41)
-        let mut buf = [0i8; 41];
+        // SDK requires >= 45 bytes: rmid1:xxxxx-xxxxxxxxxxx-xxxxxxxx-xxxxxxxx + null terminator.
+        // SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_STRING_LENGTH (41) is the char count, not buffer size.
+        let mut buf = [0i8; 45];
         let rc = unsafe {
             ffi::solClient_replicationGroupMessageId_toString(
                 &mut rgmid,

@@ -32,10 +32,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ env.rust_version }}
           components: rustfmt, clippy
+          cache: false
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy -- -Dwarnings
       - run: cargo clippy --features async -- -Dwarnings
@@ -47,10 +49,13 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: "1.88.0"
-          cache-key: msrv
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
       - name: Check MSRV (default features)
         run: cargo check --all-targets
       - name: Check MSRV (async feature)
@@ -70,11 +75,13 @@ jobs:
       SOLCLIENT_TARBALL_URL: ${{ secrets.SOLCLIENT_TARBALL_URL }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ env.rust_version }}
-          # cache also preserves OUT_DIR contents, so the extracted Solace C library
-          # is cached and not re-downloaded on cache hits.
+          cache: false
+      # rust-cache also preserves OUT_DIR contents across runs, which means the
+      # extracted Solace C library is cached and not re-downloaded on cache hits.
+      - uses: Swatinem/rust-cache@v2
       - name: Build (default features)
         run: cargo build --all-targets --verbose
       - name: Build (async feature)
@@ -102,9 +109,11 @@ jobs:
           - 8080:8080
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ env.rust_version }}
+          cache: false
+      - uses: Swatinem/rust-cache@v2
 
       - name: Wait for broker SEMP API
         run: |

@@ -25,9 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+          cache: false
+      - uses: Swatinem/rust-cache@v2
 
       # Secrets cannot be tested in `if:` conditions directly; use an env var instead.
       - name: Check for crates.io token

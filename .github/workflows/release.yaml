@@ -25,12 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
           toolchain: stable
-
-      # Restore build cache to avoid recompiling the world during publish verification.
-      - uses: Swatinem/rust-cache@v2
 
       # Secrets cannot be tested in `if:` conditions directly; use an env var instead.
       - name: Check for crates.io token

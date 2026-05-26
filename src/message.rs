@@ -85,10 +85,7 @@ type Result<T> = std::result::Result<T, MessageError>;
 ///
 /// Returns [`MessageError::RgmidNotComparable`] if the two IDs were published
 /// to different brokers and cannot be ordered against each other.
-pub fn compare_replication_group_message_ids(
-    a: &[u8; 16],
-    b: &[u8; 16],
-) -> Result<Ordering> {
+pub fn compare_replication_group_message_ids(a: &[u8; 16], b: &[u8; 16]) -> Result<Ordering> {
     let mut a_rgmid = ffi::solClient_replicationGroupMessageId_t {
         replicationGroupMessageId: [0; 16],
     };

@@ -8,6 +8,7 @@ use enum_primitive::*;
 pub use inbound::InboundMessage;
 pub use outbound::{OutboundMessage, OutboundMessageBuilder};
 use solace_rs_sys as ffi;
+use std::cmp::Ordering;
 use std::ffi::CStr;
 use std::mem;
 use std::mem::size_of;
@@ -66,9 +67,58 @@ pub enum MessageError {
     FieldError(&'static str, SolClientReturnCode),
     #[error("failed to convert field from solace")]
     FieldConvertionError(&'static str),
+    #[error(
+        "replication group message ids are not comparable (likely published \
+         to different brokers or HA pairs). SolClient return code: {0}"
+    )]
+    RgmidNotComparable(SolClientReturnCode),
 }
 
 type Result<T> = std::result::Result<T, MessageError>;
+
+/// Compare two Replication Group Message IDs using the broker-defined ordering.
+///
+/// RGMIDs are 16-byte broker-opaque tokens whose ordering is only meaningful
+/// within a single broker (or HA pair). The Solace C library implements the
+/// comparator; this function wraps `solClient_replicationGroupMessageId_compare`
+/// so callers do not need to reason about the underlying byte layout.
+///
+/// Returns [`MessageError::RgmidNotComparable`] if the two IDs were published
+/// to different brokers and cannot be ordered against each other.
+pub fn compare_replication_group_message_ids(
+    a: &[u8; 16],
+    b: &[u8; 16],
+) -> Result<Ordering> {
+    let mut a_rgmid = ffi::solClient_replicationGroupMessageId_t {
+        replicationGroupMessageId: [0; 16],
+    };
+    let mut b_rgmid = ffi::solClient_replicationGroupMessageId_t {
+        replicationGroupMessageId: [0; 16],
+    };
+    // SAFETY: c_char and u8 have identical size/layout (1 byte each, no padding).
+    unsafe {
+        ptr::copy_nonoverlapping(
+            a.as_ptr(),
+            a_rgmid.replicationGroupMessageId.as_mut_ptr() as *mut u8,
+            16,
+        );
+        ptr::copy_nonoverlapping(
+            b.as_ptr(),
+            b_rgmid.replicationGroupMessageId.as_mut_ptr() as *mut u8,
+            16,
+        );
+    }
+
+    let mut cmp: std::os::raw::c_int = 0;
+    let rc = unsafe {
+        ffi::solClient_replicationGroupMessageId_compare(&mut a_rgmid, &mut b_rgmid, &mut cmp)
+    };
+    let rc = SolClientReturnCode::from_raw(rc);
+    match rc {
+        SolClientReturnCode::Ok => Ok(cmp.cmp(&0)),
+        _ => Err(MessageError::RgmidNotComparable(rc)),
+    }
+}
 
 pub trait Message {
     /// .

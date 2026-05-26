@@ -364,4 +364,37 @@ impl InboundMessage {
             .to_owned();
         Ok(Some(s))
     }
+
+    /// Retrieves the Replication Group Message ID as the raw 16-byte
+    /// broker-opaque token.
+    ///
+    /// This is the lossless representation suitable for compact serialization
+    /// and for ordering comparisons via
+    /// [`crate::message::compare_replication_group_message_ids`]. Use
+    /// [`Self::get_replication_group_message_id`] when a human-readable
+    /// (41-character) form is needed.
+    ///
+    /// Returns `None` if the message does not carry a replication group
+    /// message ID (e.g. direct messages).
+    pub fn get_replication_group_message_id_raw(&self) -> Result<Option<[u8; 16]>> {
+        let mut rgmid = ffi::solClient_replicationGroupMessageId_t {
+            replicationGroupMessageId: [0; 16],
+        };
+        let rc = unsafe {
+            ffi::solClient_msg_getReplicationGroupMessageId(
+                self.get_raw_message_ptr(),
+                &mut rgmid,
+                std::mem::size_of::<ffi::solClient_replicationGroupMessageId_t>(),
+            )
+        };
+        let rc = SolClientReturnCode::from_raw(rc);
+        match rc {
+            SolClientReturnCode::NotFound => Ok(None),
+            SolClientReturnCode::Ok => Ok(Some(rgmid.replicationGroupMessageId.map(|c| c as u8))),
+            _ => Err(MessageError::FieldError(
+                "replication_group_message_id_raw",
+                rc,
+            )),
+        }
+    }
 }

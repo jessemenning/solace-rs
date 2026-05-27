@@ -84,6 +84,7 @@ pub struct AsyncSessionBuilder {
     connect_timeout_ms: Option<u64>,
     ssl_trust_store_dir: Option<Vec<u8>>,
     client_name: Option<Vec<u8>>,
+    generate_rcv_timestamps: Option<bool>,
 }
 
 impl AsyncSessionBuilder {
@@ -100,6 +101,7 @@ impl AsyncSessionBuilder {
             connect_timeout_ms: None,
             ssl_trust_store_dir: None,
             client_name: None,
+            generate_rcv_timestamps: None,
         }
     }
 
@@ -156,6 +158,13 @@ impl AsyncSessionBuilder {
     /// Client name to identify this session on the broker.
     pub fn client_name<C: Into<Vec<u8>>>(mut self, client_name: C) -> Self {
         self.client_name = Some(client_name.into());
+        self
+    }
+
+    /// Instruct the API to populate the receive timestamp on every inbound
+    /// message (`get_rcv_timestamp`). Disabled by default.
+    pub fn generate_rcv_timestamps(mut self, generate: bool) -> Self {
+        self.generate_rcv_timestamps = Some(generate);
         self
     }
 
@@ -232,6 +241,9 @@ impl AsyncSessionBuilder {
         }
         if let Some(name) = self.client_name {
             builder = builder.client_name(name);
+        }
+        if let Some(gen) = self.generate_rcv_timestamps {
+            builder = builder.generate_rcv_timestamps(gen);
         }
 
         let inner = builder.build()?;

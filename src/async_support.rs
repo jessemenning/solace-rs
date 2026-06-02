@@ -22,7 +22,6 @@ type BoxFlowEventFn = Box<dyn FnMut(FlowEvent) + Send + 'static>;
 
 /// Default guaranteed-messaging flow window: number of unacked messages the broker
 /// will push before waiting for acknowledgements.
-const FLOW_WINDOW_SIZE: &[u8] = b"255\0";
 
 /// Shared ownership of the underlying session.
 ///
@@ -324,6 +323,12 @@ impl AsyncSession {
         self.inner.lock().unwrap().publish(message)
     }
 
+    /// Publish multiple messages in a single C SDK call.  See
+    /// `Session::publish_multiple` for semantics and chunking behaviour.
+    pub fn publish_multiple(&self, messages: &[OutboundMessage]) -> Result<(), SessionError> {
+        self.inner.lock().unwrap().publish_multiple(messages)
+    }
+
     /// Publish a message and return a future that resolves when the broker acknowledges it.
     ///
     /// Only meaningful for `PERSISTENT` and `NON_PERSISTENT` delivery modes; for `DIRECT`
@@ -367,10 +372,19 @@ impl AsyncSession {
     ///
     /// The flow holds an `Arc` clone of the session, so the session will not be freed
     /// until all flows derived from it have been dropped.
+    ///
+    /// `window_size` controls how many unacked messages the broker will push before
+    /// pausing delivery. Set it to at least `target_msg_rate × persist_commit_interval_secs`
+    /// to avoid stalling the broker at high throughput.
+    ///
+    /// `max_unacked` maps to `SOLCLIENT_FLOW_PROP_MAX_UNACKED_MESSAGES`; pass `None`
+    /// to use the broker default.
     pub fn create_flow(
         &self,
         queue_name: &str,
         ack_mode: AckMode,
+        window_size: u32,
+        max_unacked: Option<i32>,
     ) -> Result<OwnedAsyncFlow, FlowError> {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -392,10 +406,15 @@ impl AsyncSession {
         };
         let durable_val: &[u8] = b"1\0";
         // Flow is created in the stopped state; callers must invoke .start() explicitly.
-        // This matches the behaviour of the synchronous FlowBuilder.
         let start_state_val: &[u8] = b"0\0";
+        let window_size_str = std::ffi::CString::new(window_size.to_string())
+            .map_err(FlowError::InvalidArgsNulError)?;
+        let max_unacked_str = max_unacked
+            .map(|m| std::ffi::CString::new(m.to_string()))
+            .transpose()
+            .map_err(FlowError::InvalidArgsNulError)?;
 
-        let props: Vec<*const std::os::raw::c_char> = vec![
+        let mut props: Vec<*const std::os::raw::c_char> = vec![
             ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_ID.as_ptr() as *const _,
             bind_entity_id.as_ptr() as *const _,
             ffi::SOLCLIENT_FLOW_PROP_BIND_NAME.as_ptr() as *const _,
@@ -405,11 +424,15 @@ impl AsyncSession {
             ffi::SOLCLIENT_FLOW_PROP_ACKMODE.as_ptr() as *const _,
             ack_mode_val.as_ptr() as *const _,
             ffi::SOLCLIENT_FLOW_PROP_WINDOWSIZE.as_ptr() as *const _,
-            FLOW_WINDOW_SIZE.as_ptr() as *const _,
+            window_size_str.as_ptr(),
             ffi::SOLCLIENT_FLOW_PROP_START_STATE.as_ptr() as *const _,
             start_state_val.as_ptr() as *const _,
-            std::ptr::null(),
         ];
+        if let Some(ref m) = max_unacked_str {
+            props.push(ffi::SOLCLIENT_FLOW_PROP_MAX_UNACKED_MESSAGES.as_ptr() as *const _);
+            props.push(m.as_ptr());
+        }
+        props.push(std::ptr::null());
 
         // Set up callback trampolines.
         // The double-boxing pattern mirrors FlowBuilder::build(): the outer Box gives us a stable

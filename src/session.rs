@@ -63,6 +63,37 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
         Ok(())
     }
 
+    /// Publish multiple messages in a single C SDK call.
+    ///
+    /// Internally chunks at `SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT` (50). For
+    /// Direct messages this is significantly more efficient than calling
+    /// `publish` in a loop because the C SDK coalesces all messages in a chunk
+    /// into a single TCP write, eliminating per-message syscall overhead.
+    pub fn publish_multiple(&self, messages: &[OutboundMessage]) -> Result<()> {
+        const CHUNK: usize = ffi::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize;
+        for chunk in messages.chunks(CHUNK) {
+            let mut ptrs: Vec<ffi::solClient_opaqueMsg_pt> = chunk
+                .iter()
+                .map(|m| unsafe { m.get_raw_message_ptr() })
+                .collect();
+            let mut n_written: std::os::raw::c_uint = 0;
+            let rc = unsafe {
+                ffi::solClient_session_sendMultipleMsg(
+                    self._session_ptr,
+                    ptrs.as_mut_ptr(),
+                    chunk.len() as std::os::raw::c_uint,
+                    &mut n_written,
+                )
+            };
+            let rc = SolClientReturnCode::from_raw(rc);
+            if !rc.is_ok() {
+                let subcode = get_last_error_info();
+                return Err(SessionError::PublishError(rc, subcode));
+            }
+        }
+        Ok(())
+    }
+
     pub fn subscribe<T>(&self, topic: T) -> Result<()>
     where
         T: Into<Vec<u8>>,

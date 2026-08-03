@@ -318,6 +318,24 @@ impl AsyncSession {
         self.event_rx.recv().await
     }
 
+    /// Take ownership of the session event receiver, transferring it to the caller.
+    ///
+    /// This lets a separate task (e.g. a dedicated event drainer) consume
+    /// [`SessionEvent`]s — including broker acknowledgements in persistent mode —
+    /// independently of the session, which is otherwise held behind a `&self` in a
+    /// synchronous `OutputEndpoint`. Draining is required in persistent mode:
+    /// unconsumed `Acknowledgement` events accumulate in the channel unbounded.
+    ///
+    /// After this call, [`recv_event`](Self::recv_event) always returns `None`; the
+    /// returned receiver is the sole consumer of session events. Calling this more
+    /// than once yields an already-closed receiver on subsequent calls.
+    pub fn take_event_receiver(&mut self) -> tokio::sync::mpsc::UnboundedReceiver<SessionEvent> {
+        // Swap in a fresh, immediately-closed channel so the field stays valid and
+        // `recv_event` degrades to `None` rather than panicking.
+        let (_closed_tx, closed_rx) = tokio::sync::mpsc::unbounded_channel();
+        std::mem::replace(&mut self.event_rx, closed_rx)
+    }
+
     /// Publish a message (synchronous — the Solace C API publish is blocking).
     pub fn publish(&self, message: OutboundMessage) -> Result<(), SessionError> {
         self.inner.lock().unwrap().publish(message)

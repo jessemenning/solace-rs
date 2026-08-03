@@ -139,9 +139,11 @@ impl InboundMessage {
         let rc = SolClientReturnCode::from_raw(rc);
         match rc {
             SolClientReturnCode::NotFound => Ok(None),
-            SolClientReturnCode::Ok => Ok(Some(
-                SystemTime::UNIX_EPOCH + Duration::from_millis(ts.try_into().unwrap()),
-            )),
+            // A negative broker timestamp is invalid (predates the UNIX epoch); treat
+            // it as absent rather than panicking on the `u64` conversion.
+            SolClientReturnCode::Ok => Ok(u64::try_from(ts)
+                .ok()
+                .map(|ms| SystemTime::UNIX_EPOCH + Duration::from_millis(ms))),
             _ => Err(MessageError::FieldError("receive_timestamp", rc)),
         }
     }

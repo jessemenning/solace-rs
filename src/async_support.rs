@@ -20,9 +20,6 @@ type BoxMsgFn = Box<dyn FnMut(InboundMessage) + Send + 'static>;
 type BoxEventFn = Box<dyn FnMut(SessionEvent) + Send + 'static>;
 type BoxFlowEventFn = Box<dyn FnMut(FlowEvent) + Send + 'static>;
 
-/// Default guaranteed-messaging flow window: number of unacked messages the broker
-/// will push before waiting for acknowledgements.
-
 /// Shared ownership of the underlying session.
 ///
 /// `Arc<Mutex<...>>` lets `OwnedAsyncFlow` keep the session alive through a clone

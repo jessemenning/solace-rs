@@ -61,7 +61,7 @@ impl fmt::Debug for InboundMessage {
         if self.get_application_message_id().is_some() {
             f.field(
                 "application_message_id",
-                &format_args!("{}", &self.get_application_message_id().unwrap()),
+                &format_args!("{}", self.get_application_message_id().unwrap()),
             );
         }
         if self.get_user_data().is_ok_and(|v| v.is_some()) {

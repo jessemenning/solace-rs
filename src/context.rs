@@ -54,9 +54,10 @@ impl RawContext {
             };
 
         // enable context thread
-        let mut context_props: [*const i8; 3] = [
-            solace_rs_sys::SOLCLIENT_CONTEXT_PROP_CREATE_THREAD.as_ptr() as *const i8,
-            solace_rs_sys::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const i8,
+        let mut context_props: [*const std::os::raw::c_char; 3] = [
+            solace_rs_sys::SOLCLIENT_CONTEXT_PROP_CREATE_THREAD.as_ptr()
+                as *const std::os::raw::c_char,
+            solace_rs_sys::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const std::os::raw::c_char,
             ptr::null(),
         ];
 

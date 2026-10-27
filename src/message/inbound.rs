@@ -343,7 +343,7 @@ impl InboundMessage {
 
         // Convert opaque struct to a 41-char string
         // (SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_STRING_LENGTH = 41)
-        let mut buf = [0i8; 41];
+        let mut buf = [0 as std::os::raw::c_char; 41];
         let rc = unsafe {
             ffi::solClient_replicationGroupMessageId_toString(
                 &mut rgmid,

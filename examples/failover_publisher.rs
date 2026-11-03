@@ -48,7 +48,10 @@ extern "C" fn on_signal(_sig: i32) {
 }
 
 fn now_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
 }
 
 struct InRec {
@@ -75,7 +78,8 @@ fn parse_input(s: &str) -> Option<(u64, String)> {
 
 fn main() {
     let id = std::env::args().nth(1).unwrap_or_else(|| "A".into());
-    let host = std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
+    let host =
+        std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
     let vpn = std::env::var("SOLACE_BROKER_VPN").unwrap_or_else(|_| "default".into());
     let user = std::env::var("SOLACE_BROKER_USERNAME").unwrap_or_else(|_| "default".into());
     let pass = std::env::var("SOLACE_BROKER_PASSWORD").unwrap_or_else(|_| "".into());
@@ -127,13 +131,17 @@ fn main() {
             Ok(Some(b)) => String::from_utf8_lossy(b).to_string(),
             _ => return,
         };
-        let Some((input_seq, key)) = parse_input(&payload) else { return };
+        let Some((input_seq, key)) = parse_input(&payload) else {
+            return;
+        };
         let msg_id = msg.get_msg_id().ok().flatten().unwrap_or(0);
         let redelivered = msg.is_redelivered();
-        msg_inbox
-            .lock()
-            .unwrap()
-            .push_back(InRec { input_seq, key, msg_id, redelivered });
+        msg_inbox.lock().unwrap().push_back(InRec {
+            input_seq,
+            key,
+            msg_id,
+            redelivered,
+        });
     };
 
     let flow = session

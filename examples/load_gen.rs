@@ -16,17 +16,23 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use solace_rs::{
-    message::{DeliveryMode, DestinationType, InboundMessage, MessageDestination, OutboundMessageBuilder},
+    message::{
+        DeliveryMode, DestinationType, InboundMessage, MessageDestination, OutboundMessageBuilder,
+    },
     session::SessionEvent,
     Context, SolaceLogLevel,
 };
 
 fn env_u64(name: &str, default: u64) -> u64 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 fn main() {
-    let host = std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
+    let host =
+        std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
     let vpn = std::env::var("SOLACE_BROKER_VPN").unwrap_or_else(|_| "default".into());
     let user = std::env::var("SOLACE_BROKER_USERNAME").unwrap_or_else(|_| "default".into());
     let pass = std::env::var("SOLACE_BROKER_PASSWORD").unwrap_or_else(|_| "".into());
@@ -52,7 +58,9 @@ fn main() {
 
     let interval = Duration::from_micros(1_000_000 / rate);
     let total = rate * duration_s;
-    eprintln!("load_gen: {rate} msg/s for {duration_s}s ({total} msgs) over {keys} keys → '{topic}'");
+    eprintln!(
+        "load_gen: {rate} msg/s for {duration_s}s ({total} msgs) over {keys} keys → '{topic}'"
+    );
 
     let start = Instant::now();
     let mut seq: u64 = 0;

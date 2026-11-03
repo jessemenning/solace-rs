@@ -31,9 +31,9 @@ def main() -> int:
             line = line.strip()
             if not line:
                 continue
-            # split off the recorder's recv_ms prefix, parse the JSON remainder
-            sp = line.find(" ")
-            payload = line[sp + 1:] if sp > 0 else line
+            # recorder writes `<recv_ms> <topic> <json>`; the JSON is the 3rd field onward.
+            parts = line.split(" ", 2)
+            payload = parts[2] if len(parts) == 3 else line
             try:
                 r = json.loads(payload)
                 r["input_seq"] = int(r["input_seq"])

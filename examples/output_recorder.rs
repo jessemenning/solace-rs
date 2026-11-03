@@ -47,8 +47,16 @@ fn main() {
     let c = Arc::clone(&count);
     let on_message = move |msg: InboundMessage| {
         if let Ok(Some(bytes)) = msg.get_payload() {
+            // Record `<recv_ms> <topic> <payload>` — the topic carries the relaying gate id
+            // in the egress rig; `-` when unavailable.
+            let topic = msg
+                .get_destination()
+                .ok()
+                .flatten()
+                .and_then(|d| d.dest.into_string().ok())
+                .unwrap_or_else(|| "-".into());
             let payload = String::from_utf8_lossy(bytes);
-            let line = format!("{} {}\n", now_ms(), payload);
+            let line = format!("{} {} {}\n", now_ms(), topic, payload);
             f.lock().unwrap().write_all(line.as_bytes()).ok();
             *c.lock().unwrap() += 1;
         }

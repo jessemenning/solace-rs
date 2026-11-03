@@ -401,6 +401,22 @@ impl AsyncSession {
         window_size: u32,
         max_unacked: Option<i32>,
     ) -> Result<OwnedAsyncFlow, FlowError> {
+        self.create_flow_active(queue_name, ack_mode, window_size, max_unacked, false)
+    }
+
+    /// Like [`create_flow`](Self::create_flow) but with an explicit active-flow-indication
+    /// flag. When `active_flow_indication` is true, sets `SOLCLIENT_FLOW_PROP_ACTIVE_FLOW_IND`:
+    /// on an exclusive endpoint the broker grants `FlowEvent::Active` to exactly one bound
+    /// flow and promotes a standby when the active flow departs — the leader lock used by the
+    /// HA egress gate. Mirrors `FlowBuilder::active_flow_indication` on the sync path.
+    pub fn create_flow_active(
+        &self,
+        queue_name: &str,
+        ack_mode: AckMode,
+        window_size: u32,
+        max_unacked: Option<i32>,
+        active_flow_indication: bool,
+    ) -> Result<OwnedAsyncFlow, FlowError> {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -446,6 +462,10 @@ impl AsyncSession {
         if let Some(ref m) = max_unacked_str {
             props.push(ffi::SOLCLIENT_FLOW_PROP_MAX_UNACKED_MESSAGES.as_ptr() as *const _);
             props.push(m.as_ptr());
+        }
+        if active_flow_indication {
+            props.push(ffi::SOLCLIENT_FLOW_PROP_ACTIVE_FLOW_IND.as_ptr() as *const _);
+            props.push(ffi::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const _);
         }
         props.push(std::ptr::null());
 

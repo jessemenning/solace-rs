@@ -34,6 +34,9 @@ fn main() {
     let rate = env_u64("RATE", 200).max(1);
     let duration_s = env_u64("DURATION_S", 20);
     let keys = env_u64("KEYS", 8).max(1);
+    // KEYED=1: publish to `<INPUT_TOPIC>/k<key>` with payload `<seq>` so a Feldera
+    // solace_input `topic_pattern` can extract the key. Default: single topic, `seq=..;key=..`.
+    let keyed = std::env::var("KEYED").ok().as_deref() == Some("1");
 
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = ctx
@@ -59,8 +62,12 @@ fn main() {
         if next > now {
             sleep(next - now);
         }
-        let payload = format!("seq={};key=k{}", seq, seq % keys);
-        let dest = MessageDestination::new(DestinationType::Topic, topic.as_str()).unwrap();
+        let (dest_topic, payload) = if keyed {
+            (format!("{}/k{}", topic, seq % keys), format!("{}", seq))
+        } else {
+            (topic.clone(), format!("seq={};key=k{}", seq, seq % keys))
+        };
+        let dest = MessageDestination::new(DestinationType::Topic, dest_topic.as_str()).unwrap();
         let msg = OutboundMessageBuilder::new()
             .destination(dest)
             .delivery_mode(DeliveryMode::Persistent)

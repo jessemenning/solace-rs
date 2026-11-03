@@ -37,6 +37,7 @@ futures-core = { version = "0.3", optional = true }
 [dev-dependencies]
 tracing-subscriber = "0.3.17"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+libc = "0.2"  # failover_publisher example: SIGTERM handler for graceful-unbind handoff
 
 [lints.clippy]
 needless_return = 'allow'

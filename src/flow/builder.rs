@@ -269,7 +269,14 @@ where
 
         // Set up callback trampolines
         let mut msg_fn_box: Box<Box<FM>> = Box::new(Box::new(on_message));
-        let msg_callback = on_flow_message_trampoline(&*msg_fn_box);
+        // The trampoline is monomorphised on the closure type and transmutes `user_p`
+        // back to `&mut Box<FM>`, so `F` must be `FM` (via `&**`), not `Box<FM>` (via
+        // `&*`). Passing `&*msg_fn_box` made `F = Box<FM>`, one Box level too deep for a
+        // `user_p` that points at the inner `Box<FM>` — the trampoline then dereferenced
+        // once too far into the closure's captured state and SIGSEGV'd once a flow
+        // delivered a guaranteed message. (The session builder already uses the closure
+        // type directly; this restores the symmetry.)
+        let msg_callback = on_flow_message_trampoline(&**msg_fn_box);
         let msg_user_p = &mut *msg_fn_box as *mut Box<FM> as *mut std::os::raw::c_void;
 
         let (event_callback, event_user_p, event_fn_box) = if let Some(on_event) = self.on_event {

@@ -7,6 +7,7 @@ use std::{
 };
 
 use solace_rs::{
+    flow::{AckMode, BindEntity},
     message::{
         DeliveryMode, DestinationType, InboundMessage, Message, MessageDestination,
         OutboundMessageBuilder,
@@ -619,4 +620,82 @@ fn request_and_reply() {
         assert!(res.join().is_ok());
         assert!(req.join().is_ok());
     });
+}
+
+/// Regression test: a synchronous flow `on_message` callback must drain more than one
+/// guaranteed message without crashing, and the flow must tear down cleanly afterward.
+///
+/// The flow builder used to monomorphise the rx trampoline on `Box<FM>` instead of the
+/// closure type `FM`, so the trampoline dereferenced one `Box` level too far into the
+/// closure's captured environment and SIGSEGV'd as soon as the broker delivered a
+/// guaranteed message. Direct/session messaging (used by the other tests) never exercised
+/// the flow callback path, so the bug went uncaught. Requires the pre-provisioned durable
+/// queue (`rust-test-queue`, or set `SOLACE_TEST_QUEUE`).
+#[test]
+#[ignore]
+fn flow_sync_callback_drains_multiple_guaranteed_messages() {
+    let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
+    let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
+    let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
+    let password = option_env!("SOLACE_BROKER_PASSWORD").unwrap_or(DEFAULT_PASSWORD);
+    let queue = option_env!("SOLACE_TEST_QUEUE").unwrap_or("rust-test-queue");
+    let n: usize = 10;
+
+    let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
+    let received: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_cb = Arc::clone(&received);
+
+    let session = solace_context
+        .session_builder()
+        .host_name(url)
+        .vpn_name(vpn)
+        .username(username)
+        .password(password)
+        .on_message(|_: InboundMessage| {})
+        .on_event(|_: SessionEvent| {})
+        .build()
+        .expect("creating session");
+
+    // Publish N guaranteed messages to the queue, then bind a sync flow and drain them.
+    for i in 0..n {
+        let dest = MessageDestination::new(DestinationType::Queue, queue).unwrap();
+        let msg = OutboundMessageBuilder::new()
+            .destination(dest)
+            .delivery_mode(DeliveryMode::Persistent)
+            .payload(format!("guaranteed-{i}"))
+            .build()
+            .expect("building guaranteed message");
+        session.publish(msg).expect("publishing guaranteed message");
+    }
+    sleep(SLEEP_TIME);
+
+    let flow = session
+        .flow_builder()
+        .bind_entity(BindEntity::Queue)
+        .bind_name(queue)
+        .ack_mode(AckMode::Auto)
+        .on_message(move |message: InboundMessage| {
+            // Before the fix, reading the captured `Arc` here dereferenced into garbage
+            // and SIGSEGV'd on the first delivered guaranteed message.
+            if let Ok(Some(payload)) = message.get_payload() {
+                received_cb.lock().unwrap().push(payload.to_vec());
+            }
+        })
+        .build()
+        .expect("binding flow to queue");
+
+    // Drain the backlog, polling up to the receive timeout.
+    let deadline = std::time::Instant::now() + RECV_TIMEOUT;
+    while received.lock().unwrap().len() < n && std::time::Instant::now() < deadline {
+        sleep(SLEEP_TIME);
+    }
+
+    let count = received.lock().unwrap().len();
+    assert!(
+        count >= n,
+        "sync flow callback should drain all {n} guaranteed messages, got {count}"
+    );
+
+    // Dropping the flow after guaranteed delivery also crashed before the fix.
+    drop(flow);
 }

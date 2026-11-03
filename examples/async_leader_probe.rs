@@ -15,7 +15,9 @@
 
 #[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("build with --features async: cargo run --features async --example async_leader_probe");
+    eprintln!(
+        "build with --features async: cargo run --features async --example async_leader_probe"
+    );
 }
 
 #[cfg(feature = "async")]
@@ -28,10 +30,14 @@ async fn main() {
     use solace_rs::{Context, SolaceLogLevel};
 
     fn now_ms() -> u128 {
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
     }
 
-    let host = std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
+    let host =
+        std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
     let vpn = std::env::var("SOLACE_BROKER_VPN").unwrap_or_else(|_| "default".into());
     let user = std::env::var("SOLACE_BROKER_USERNAME").unwrap_or_else(|_| "default".into());
     let pass = std::env::var("SOLACE_BROKER_PASSWORD").unwrap_or_else(|_| "".into());
@@ -108,7 +114,11 @@ async fn main() {
     let mut promo: Option<u128> = None;
     let t_wait = now_ms() + 3000;
     while now_ms() < t_wait && promo.is_none() {
-        let f = if standby == "A" { fa.as_mut() } else { fb.as_mut() };
+        let f = if standby == "A" {
+            fa.as_mut()
+        } else {
+            fb.as_mut()
+        };
         if let Some(f) = f {
             while let Ok(e) = f.try_recv_event() {
                 eprintln!("[{standby}] {e:?} @ {}", now_ms());
@@ -121,8 +131,14 @@ async fn main() {
     }
 
     match promo {
-        Some(t) => println!("TAKEOVER: standby {standby} became Active {} ms after leader drop", t - t_drop),
+        Some(t) => println!(
+            "TAKEOVER: standby {standby} became Active {} ms after leader drop",
+            t - t_drop
+        ),
         None => println!("NO takeover: standby {standby} not promoted within 3s"),
     }
-    println!("async active-flow indication: {}", if promo.is_some() { "WORKS" } else { "FAILED" });
+    println!(
+        "async active-flow indication: {}",
+        if promo.is_some() { "WORKS" } else { "FAILED" }
+    );
 }

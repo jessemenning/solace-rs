@@ -44,13 +44,16 @@ fn now_ms() -> u128 {
 
 fn main() {
     let id = std::env::args().nth(1).unwrap_or_else(|| "A".into());
-    let host = std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
+    let host =
+        std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
     let vpn = std::env::var("SOLACE_BROKER_VPN").unwrap_or_else(|_| "default".into());
     let user = std::env::var("SOLACE_BROKER_USERNAME").unwrap_or_else(|_| "default".into());
     let pass = std::env::var("SOLACE_BROKER_PASSWORD").unwrap_or_else(|_| "".into());
     let leader_q = std::env::var("LEADER_Q").unwrap_or_else(|_| "leader-q".into());
-    let gate_in = std::env::var("GATE_IN").unwrap_or_else(|_| format!("failover/fout/{}/>", id.to_lowercase()));
-    let gate_out = std::env::var("GATE_OUT").unwrap_or_else(|_| format!("failover/out/{}", id.to_lowercase()));
+    let gate_in = std::env::var("GATE_IN")
+        .unwrap_or_else(|_| format!("failover/fout/{}/>", id.to_lowercase()));
+    let gate_out =
+        std::env::var("GATE_OUT").unwrap_or_else(|_| format!("failover/out/{}", id.to_lowercase()));
 
     unsafe {
         libc::signal(libc::SIGTERM, on_signal as *const () as usize);
@@ -87,7 +90,9 @@ fn main() {
         .build()
         .expect("session build");
 
-    session.subscribe(gate_in.as_str()).expect("subscribe gate_in");
+    session
+        .subscribe(gate_in.as_str())
+        .expect("subscribe gate_in");
 
     // Leader lock: exclusive flow on leader-q, election only (no messages expected).
     let ev_leader = Arc::clone(&is_leader);

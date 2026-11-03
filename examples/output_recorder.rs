@@ -22,17 +22,24 @@ use solace_rs::{
 };
 
 fn now_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
 }
 
 fn main() {
-    let host = std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
+    let host =
+        std::env::var("SOLACE_BROKER_URL").unwrap_or_else(|_| "tcp://localhost:55555".into());
     let vpn = std::env::var("SOLACE_BROKER_VPN").unwrap_or_else(|_| "default".into());
     let user = std::env::var("SOLACE_BROKER_USERNAME").unwrap_or_else(|_| "default".into());
     let pass = std::env::var("SOLACE_BROKER_PASSWORD").unwrap_or_else(|_| "".into());
     let topic = std::env::var("OUTPUT_TOPIC").unwrap_or_else(|_| "failover/out".into());
     let out_file = std::env::var("OUT_FILE").unwrap_or_else(|_| "/tmp/failover-out.jsonl".into());
-    let run_s: u64 = std::env::var("RUN_S").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let run_s: u64 = std::env::var("RUN_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
 
     let file = OpenOptions::new()
         .create(true)
@@ -74,7 +81,9 @@ fn main() {
         .build()
         .expect("session build");
 
-    session.subscribe(topic.as_str()).expect("subscribe output topic");
+    session
+        .subscribe(topic.as_str())
+        .expect("subscribe output topic");
     eprintln!("output_recorder: recording '{topic}' → {out_file}");
 
     if run_s == 0 {

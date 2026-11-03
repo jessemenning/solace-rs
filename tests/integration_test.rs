@@ -629,11 +629,13 @@ fn request_and_reply() {
 /// closure type `FM`, so the trampoline dereferenced one `Box` level too far into the
 /// closure's captured environment and SIGSEGV'd as soon as the broker delivered a
 /// guaranteed message. Direct/session messaging (used by the other tests) never exercised
-/// the flow callback path, so the bug went uncaught. Requires the pre-provisioned durable
-/// queue (`rust-test-queue`, or set `SOLACE_TEST_QUEUE`).
+/// the flow callback path, so the bug went uncaught. The event path had the same mismatch
+/// (`Box<dyn>` rather than the `dyn` closure), which SIGSEGV'd on the first flow event, so
+/// this test also attaches an `on_event` handler and asserts it fires. Requires the
+/// pre-provisioned durable queue (`rust-test-queue`, or set `SOLACE_TEST_QUEUE`).
 #[test]
 #[ignore]
-fn flow_sync_callback_drains_multiple_guaranteed_messages() {
+fn flow_sync_message_and_event_callbacks_do_not_crash() {
     let url = option_env!("SOLACE_BROKER_URL").unwrap_or(DEFAULT_URL);
     let vpn = option_env!("SOLACE_BROKER_VPN").unwrap_or(DEFAULT_VPN);
     let username = option_env!("SOLACE_BROKER_USERNAME").unwrap_or(DEFAULT_USERNAME);
@@ -644,6 +646,8 @@ fn flow_sync_callback_drains_multiple_guaranteed_messages() {
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
     let received: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
     let received_cb = Arc::clone(&received);
+    let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_cb = Arc::clone(&events);
 
     let session = solace_context
         .session_builder()
@@ -674,6 +678,11 @@ fn flow_sync_callback_drains_multiple_guaranteed_messages() {
         .bind_entity(BindEntity::Queue)
         .bind_name(queue)
         .ack_mode(AckMode::Auto)
+        .on_event(move |e| {
+            // Before the fix, delivering a flow event (e.g. Flow up) here SIGSEGV'd the
+            // same way, via the event path's Box-indirection mismatch.
+            events_cb.lock().unwrap().push(format!("{e}"));
+        })
         .on_message(move |message: InboundMessage| {
             // Before the fix, reading the captured `Arc` here dereferenced into garbage
             // and SIGSEGV'd on the first delivered guaranteed message.
@@ -694,6 +703,11 @@ fn flow_sync_callback_drains_multiple_guaranteed_messages() {
     assert!(
         count >= n,
         "sync flow callback should drain all {n} guaranteed messages, got {count}"
+    );
+
+    assert!(
+        !events.lock().unwrap().is_empty(),
+        "flow on_event should fire at least once (e.g. Flow up) without crashing"
     );
 
     // Dropping the flow after guaranteed delivery also crashed before the fix.

@@ -285,7 +285,12 @@ where
             // One deref gives F = Box<dyn FnMut(FlowEvent)> which satisfies the trampoline bound.
             let mut event_fn_box: Box<Box<dyn FnMut(FlowEvent) + Send + 'flow>> =
                 Box::new(on_event);
-            let cb = on_flow_event_trampoline(&*event_fn_box);
+            // Same Box-indirection fix as the message path: `&**` makes `F` the `dyn`
+            // closure (via a `?Sized` trampoline bound) rather than `Box<dyn>`, so the
+            // trampoline's `&mut Box<F>` transmute matches the inner-`Box` `user_p` and
+            // dereferences exactly once. `&*` made `F = Box<dyn>` and over-dereferenced,
+            // SIGSEGV'ing the moment the broker delivered a flow event (e.g. Active).
+            let cb = on_flow_event_trampoline(&**event_fn_box);
             let user_p = &mut *event_fn_box as *mut Box<dyn FnMut(FlowEvent) + Send + 'flow>
                 as *mut std::os::raw::c_void;
             (cb, user_p, Some(event_fn_box))

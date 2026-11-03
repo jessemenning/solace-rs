@@ -87,13 +87,26 @@ fn main() {
     } else {
         AckMode::Client
     };
+    // Surface loud failures (replay-log trimmed, non-exclusive refusal, broker reject) as
+    // flow events: a rebuild that cannot complete must be visible, never a silent short read.
+    let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fe = Arc::clone(&failed);
     let mut fb = session
         .flow_builder()
         .bind_entity(BindEntity::Queue)
         .bind_name(src_queue.as_str())
         .ack_mode(ack_mode)
         .max_unacked_messages(max_unacked)
-        .on_event(|e: solace_rs::flow::event::FlowEvent| eprintln!("[flow event] {e}"))
+        .on_event(move |e: solace_rs::flow::event::FlowEvent| {
+            use solace_rs::flow::event::FlowEvent::*;
+            eprintln!("[flow event] {e}");
+            if matches!(
+                e,
+                DownError | BindFailedError | RejectedMsgError | SessionDown
+            ) {
+                fe.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        })
         .on_message(on_message);
     fb = match mode.as_str() {
         "replay" => fb.replay_start_location(replay_start.as_str()),
@@ -103,7 +116,15 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let flow = fb.build().expect("flow build");
+    let flow = match fb.build() {
+        Ok(f) => f,
+        Err(e) => {
+            // e.g. client-initiated replay on a non-exclusive endpoint (subcode 136).
+            println!("RESULT mode={mode} drained=0 FLOW_BUILD_ERROR=\"{e:?}\"");
+            eprintln!("{mode}: flow build FAILED (loud): {e:?}");
+            std::process::exit(0);
+        }
+    };
     let _ = flow.start();
     eprintln!("{mode}: draining '{src_queue}' ...");
 
@@ -119,6 +140,10 @@ fn main() {
     let mut seen: HashSet<u64> = HashSet::new();
     let reset_ms: u64 = env("RESET_MS", "500").parse().unwrap_or(500);
     let mut count_at_last_reset: u64 = 0;
+    // If nothing ever arrives (e.g. a rejected/trimmed replay), give up after this and report
+    // it loudly rather than hanging — a rebuild that delivers nothing must not look like success.
+    let empty_timeout_ms: u64 = env("EMPTY_TIMEOUT_MS", "10000").parse().unwrap_or(10000);
+    let loop_start = Instant::now();
 
     loop {
         let rec = inbox.lock().unwrap().pop_front();
@@ -154,6 +179,11 @@ fn main() {
             }
             None => {
                 if count == 0 {
+                    if failed.load(std::sync::atomic::Ordering::SeqCst)
+                        || loop_start.elapsed() >= Duration::from_millis(empty_timeout_ms)
+                    {
+                        break; // nothing delivered — rejected/trimmed replay or empty source
+                    }
                     sleep(Duration::from_millis(5));
                     continue;
                 }
@@ -187,9 +217,10 @@ fn main() {
         eprintln!("shadow: {resets} window resets, {dups} duplicate re-deliveries across resets");
     }
 
-    // One machine-readable result line for analyze.py, plus a human summary.
+    let failure_event = failed.load(std::sync::atomic::Ordering::SeqCst);
+    // One machine-readable result line, plus a human summary.
     println!(
-        "RESULT mode={mode} drained={count} span_s={span:.3} throughput_msg_s={tput:.0} out_of_order={ooo}"
+        "RESULT mode={mode} drained={count} span_s={span:.3} throughput_msg_s={tput:.0} out_of_order={ooo} failure_event={failure_event}"
     );
     eprintln!(
         "{mode}: drained {count} msgs in {span:.2}s = {tput:.0} msg/s, out_of_order={ooo}\

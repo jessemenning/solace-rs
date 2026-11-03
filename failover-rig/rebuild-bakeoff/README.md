@@ -77,10 +77,25 @@ low `RESET_MS`. Replay has none of this: the broker drives a clean replay→live
 **Shadow only as a portability fallback** where the replay log is unavailable, accepting ~40×
 slower rebuild and the reset-poll fragility.
 
+## Reliability loud-failure matrix (`reliability.sh`, measured)
+
+A rebuild gap must fail LOUD (refused / error / detectably short), never a silent wrong
+rebuild. All three cases surface non-silently:
+
+| Case | Setup | Loud signal |
+|------|-------|-------------|
+| Non-exclusive replay | client-initiated replay on a non-exclusive queue | **refused at bind, subcode 135** ("Client Initiated Replay Not Allowed on Non-Exclusive Queue") — note: **135**, not 136 |
+| Trimmed replay log | 1 MB log, 60k backlog, replay from BEGINNING | drained **13,355 / 60,000, no broker error** — short but *silent at the broker*; loud only if the sidecar checks count vs watermark |
+| Shadow TTL expired | `maxTtl=3s`, publish, wait 6s, browse | drains **empty/short** (0 of 3000), detectable by count |
+
+**Key finding:** replay from **BEGINNING** on a trimmed log does **not** raise 139/140 — it
+silently delivers what remains. The loud-failure subcodes (139 `START_TIME_NOT_AVAILABLE`,
+140 `MESSAGE_UNAVAILABLE`) fire only for a trimmed **RGMID/timestamp** start. So the rebuild
+must **assert it reached its expected watermark**; "no error" ≠ "no gap." The re-feeder reports
+`drained=` and `failure_event=` for exactly this check.
+
 ## Remaining (not in this cut)
 
-- Reliability loud-failure matrix: trim the replay log inside horizon (expect subcodes
-  139/140), expire the shadow TTL (short drain), non-exclusive replay refusal (136).
 - Feldera end-to-end catch-up (re-feed the drained stream into a pipeline; this rig measures
   the source layer, the dominant differentiator).
 - A presentation UI (this rig's tables are the terminal demo).

@@ -32,6 +32,9 @@ where
     no_local: bool,
     start_state: bool,
     max_unacked_messages: Option<i32>,
+    active_flow_indication: bool,
+    browser: bool,
+    replay_start_location: Option<String>,
     _flow_lifetime: PhantomData<&'flow ()>,
 }
 
@@ -55,8 +58,33 @@ where
             no_local: false,
             start_state: true,
             max_unacked_messages: None,
+            active_flow_indication: false,
+            browser: false,
+            replay_start_location: None,
             _flow_lifetime: PhantomData,
         }
+    }
+
+    /// Enable active-flow indication (leader lock): the broker grants `Active` to one
+    /// flow on an exclusive endpoint and delivers Active/Inactive transitions. Default: false.
+    pub fn active_flow_indication(mut self, enabled: bool) -> Self {
+        self.active_flow_indication = enabled;
+        self
+    }
+
+    /// Bind as a non-destructive browser (reads without consuming). Default: false.
+    /// Mutually exclusive with `replay_start_location`.
+    pub fn browser(mut self, enabled: bool) -> Self {
+        self.browser = enabled;
+        self
+    }
+
+    /// Start Message Replay from the given location: "BEGINNING", a "DATE:..." string,
+    /// or an RGMID ("rmid1:..."). Client-initiated replay requires an exclusive endpoint.
+    /// Mutually exclusive with `browser`.
+    pub fn replay_start_location<T: Into<String>>(mut self, location: T) -> Self {
+        self.replay_start_location = Some(location.into());
+        self
     }
 
     /// Set the entity type to bind to (Queue or TopicEndpoint). Required.
@@ -169,6 +197,19 @@ where
             .transpose()
             .map_err(FlowError::InvalidArgsNulError)?;
 
+        let active_flow_val: &[u8; 2] = if self.active_flow_indication {
+            b"1\0"
+        } else {
+            b"0\0"
+        };
+        let browser_val: &[u8; 2] = if self.browser { b"1\0" } else { b"0\0" };
+        let replay_loc_c = self
+            .replay_start_location
+            .as_ref()
+            .map(|s| CString::new(s.as_str()))
+            .transpose()
+            .map_err(FlowError::InvalidArgsNulError)?;
+
         let mut props: Vec<*const std::os::raw::c_char> = vec![
             // Bind entity type
             ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_ID.as_ptr() as *const _,
@@ -203,6 +244,24 @@ where
         if let Some(ref max) = max_unacked_str {
             props.push(ffi::SOLCLIENT_FLOW_PROP_MAX_UNACKED_MESSAGES.as_ptr() as *const _);
             props.push(max.as_ptr());
+        }
+
+        // Optional active-flow indication (leader lock)
+        if self.active_flow_indication {
+            props.push(ffi::SOLCLIENT_FLOW_PROP_ACTIVE_FLOW_IND.as_ptr() as *const _);
+            props.push(active_flow_val.as_ptr() as *const _);
+        }
+
+        // Optional browser flow (non-destructive drain)
+        if self.browser {
+            props.push(ffi::SOLCLIENT_FLOW_PROP_BROWSER.as_ptr() as *const _);
+            props.push(browser_val.as_ptr() as *const _);
+        }
+
+        // Optional Message Replay start location
+        if let Some(ref loc) = replay_loc_c {
+            props.push(ffi::SOLCLIENT_FLOW_PROP_REPLAY_START_LOCATION.as_ptr() as *const _);
+            props.push(loc.as_ptr());
         }
 
         // Null terminator

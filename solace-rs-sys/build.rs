@@ -7,8 +7,8 @@ use ureq::Agent;
 
 // Solace C API version — keep in sync with the platform constants below.
 // When bumping this version, recompute all SOLCLIENT_EXPECTED_SHA256 constants.
-const SOLCLIENT_VERSION: &str = "7.33.2.3";
-const SOLCLIENT_FOLDER_NAME: &str = "solclient-7.33.2.3";
+const SOLCLIENT_VERSION: &str = "10.0.0";
+const SOLCLIENT_FOLDER_NAME: &str = "solclient-10.0.0";
 
 // Sentinel file written after a successful extraction.  Its presence proves the
 // library tree is complete; without it the extraction is re-attempted.
@@ -17,19 +17,19 @@ const EXTRACTION_MARKER: &str = ".solclient-extracted";
 // ── Archive filenames ─────────────────────────────────────────────────────────
 
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Win_vs2015_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Win_vs2015_10.0.0.tar.gz";
 
 #[cfg(target_os = "macos")]
-const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Darwin-universal2_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Darwin-universal2_opt_10.0.0.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", not(target_env = "musl")))]
-const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux26-x86_64_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux26-x86_64_opt_10.0.0.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux-aarch64_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux-aarch64_opt_10.0.0.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
-const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux_musl-x86_64_opt_7.33.2.3.tar.gz";
+const SOLCLIENT_ARCHIVE_PATH: &str = "solclient_Linux_musl-x86_64_opt_10.0.0.tar.gz";
 
 // Unsupported platform (e.g. Windows aarch64) — empty fallback so the code compiles when
 // SOLCLIENT_LIB_PATH bypasses the download path at runtime.
@@ -55,12 +55,19 @@ const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
 const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API_MUSL";
 
-// No known official URL for this platform (Linux aarch64, Windows non-x86_64, etc.).
+// Linux aarch64. Undocumented but live Solace download token (verified serving
+// solclient_Linux-aarch64_opt_10.0.0.tar.gz); the aarch64 archive is otherwise
+// not published on the public download pages.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const SOLCLIENT_OFFICIAL_URL: &str = "https://products.solace.com/download/C_API_ARM";
+
+// No known official URL for this platform (Windows non-x86_64, etc.).
 // Users must supply SOLCLIENT_TARBALL_URL or SOLCLIENT_LIB_PATH.
 #[cfg(not(any(
     all(target_os = "windows", target_arch = "x86_64"),
     target_os = "macos",
     all(target_os = "linux", target_arch = "x86_64"),
+    all(target_os = "linux", target_arch = "aarch64"),
 )))]
 const SOLCLIENT_OFFICIAL_URL: &str = "";
 
@@ -73,23 +80,23 @@ const SOLCLIENT_OFFICIAL_URL: &str = "";
 
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 const SOLCLIENT_EXPECTED_SHA256: &str =
-    "TODO: sha256sum solclient_Win_vs2015_7.33.2.3.tar.gz";
+    "TODO: sha256sum solclient_Win_vs2015_10.0.0.tar.gz";
 
 #[cfg(target_os = "macos")]
 const SOLCLIENT_EXPECTED_SHA256: &str =
-    "TODO: sha256sum solclient_Darwin-universal2_opt_7.33.2.3.tar.gz";
+    "TODO: sha256sum solclient_Darwin-universal2_opt_10.0.0.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", not(target_env = "musl")))]
 const SOLCLIENT_EXPECTED_SHA256: &str =
-    "TODO: sha256sum solclient_Linux26-x86_64_opt_7.33.2.3.tar.gz";
+    "TODO: sha256sum solclient_Linux26-x86_64_opt_10.0.0.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const SOLCLIENT_EXPECTED_SHA256: &str =
-    "TODO: sha256sum solclient_Linux-aarch64_opt_7.33.2.3.tar.gz";
+    "TODO: sha256sum solclient_Linux-aarch64_opt_10.0.0.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
 const SOLCLIENT_EXPECTED_SHA256: &str =
-    "TODO: sha256sum solclient_Linux_musl-x86_64_opt_7.33.2.3.tar.gz";
+    "TODO: sha256sum solclient_Linux_musl-x86_64_opt_10.0.0.tar.gz";
 
 // Unsupported platform — checksum verification skipped.
 #[cfg(not(any(

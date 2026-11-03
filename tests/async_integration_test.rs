@@ -251,7 +251,7 @@ async fn owned_flow_colocated_with_session() {
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
     let flow = session
-        .create_flow(queue, AckMode::Auto)
+        .create_flow(queue, AckMode::Auto, 255, None)
         .expect("create_flow");
 
     // Store both in the same struct — lifetime-free, no borrow issues.
@@ -288,7 +288,7 @@ async fn owned_flow_try_recv_empty() {
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
     let mut flow = session
-        .create_flow(queue, AckMode::Auto)
+        .create_flow(queue, AckMode::Auto, 255, None)
         .expect("create_flow");
 
     assert!(flow.try_recv().is_err());
@@ -305,7 +305,7 @@ async fn owned_flow_auto_ack() {
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
     let mut flow = session
-        .create_flow(queue, AckMode::Auto)
+        .create_flow(queue, AckMode::Auto, 255, None)
         .expect("create_flow");
     flow.start().expect("flow start");
 
@@ -341,7 +341,7 @@ async fn owned_flow_client_ack() {
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
     let mut flow = session
-        .create_flow(queue, AckMode::Client)
+        .create_flow(queue, AckMode::Client, 255, None)
         .expect("create_flow");
     flow.start().expect("flow start");
 
@@ -383,7 +383,7 @@ async fn disconnect_fails_with_active_flow() {
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
     let _flow = session
-        .create_flow(queue, AckMode::Auto)
+        .create_flow(queue, AckMode::Auto, 255, None)
         .expect("create_flow");
 
     // `_flow` is still alive; Arc refcount > 1; disconnect must fail.
@@ -399,7 +399,7 @@ async fn disconnect_succeeds_after_flow_dropped() {
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = make_session(&ctx);
     let flow = session
-        .create_flow(queue, AckMode::Auto)
+        .create_flow(queue, AckMode::Auto, 255, None)
         .expect("create_flow");
 
     drop(flow); // releases the Arc clone → refcount drops to 1

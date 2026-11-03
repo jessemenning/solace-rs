@@ -61,7 +61,7 @@ impl fmt::Debug for InboundMessage {
         if self.get_application_message_id().is_some() {
             f.field(
                 "application_message_id",
-                &format_args!("{}", &self.get_application_message_id().unwrap()),
+                &format_args!("{}", self.get_application_message_id().unwrap()),
             );
         }
         if self.get_user_data().is_ok_and(|v| v.is_some()) {
@@ -139,9 +139,11 @@ impl InboundMessage {
         let rc = SolClientReturnCode::from_raw(rc);
         match rc {
             SolClientReturnCode::NotFound => Ok(None),
-            SolClientReturnCode::Ok => Ok(Some(
-                SystemTime::UNIX_EPOCH + Duration::from_millis(ts.try_into().unwrap()),
-            )),
+            // A negative broker timestamp is invalid (predates the UNIX epoch); treat
+            // it as absent rather than panicking on the `u64` conversion.
+            SolClientReturnCode::Ok => Ok(u64::try_from(ts)
+                .ok()
+                .map(|ms| SystemTime::UNIX_EPOCH + Duration::from_millis(ms))),
             _ => Err(MessageError::FieldError("receive_timestamp", rc)),
         }
     }
@@ -341,7 +343,8 @@ impl InboundMessage {
 
         // SDK requires >= 45 bytes: rmid1:xxxxx-xxxxxxxxxxx-xxxxxxxx-xxxxxxxx + null terminator.
         // SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_STRING_LENGTH (41) is the char count, not buffer size.
-        let mut buf = [0i8; 45];
+        // (`c_char` rather than hardcoded i8 keeps aarch64, where c_char is u8, building.)
+        let mut buf = [0 as std::os::raw::c_char; 45];
         let rc = unsafe {
             ffi::solClient_replicationGroupMessageId_toString(
                 &mut rgmid,
@@ -363,5 +366,38 @@ impl InboundMessage {
             .map_err(|_| MessageError::FieldConvertionError("replication_group_message_id"))?
             .to_owned();
         Ok(Some(s))
+    }
+
+    /// Retrieves the Replication Group Message ID as the raw 16-byte
+    /// broker-opaque token.
+    ///
+    /// This is the lossless representation suitable for compact serialization
+    /// and for ordering comparisons via
+    /// [`crate::message::compare_replication_group_message_ids`]. Use
+    /// [`Self::get_replication_group_message_id`] when a human-readable
+    /// (41-character) form is needed.
+    ///
+    /// Returns `None` if the message does not carry a replication group
+    /// message ID (e.g. direct messages).
+    pub fn get_replication_group_message_id_raw(&self) -> Result<Option<[u8; 16]>> {
+        let mut rgmid = ffi::solClient_replicationGroupMessageId_t {
+            replicationGroupMessageId: [0; 16],
+        };
+        let rc = unsafe {
+            ffi::solClient_msg_getReplicationGroupMessageId(
+                self.get_raw_message_ptr(),
+                &mut rgmid,
+                std::mem::size_of::<ffi::solClient_replicationGroupMessageId_t>(),
+            )
+        };
+        let rc = SolClientReturnCode::from_raw(rc);
+        match rc {
+            SolClientReturnCode::NotFound => Ok(None),
+            SolClientReturnCode::Ok => Ok(Some(rgmid.replicationGroupMessageId.map(|c| c as u8))),
+            _ => Err(MessageError::FieldError(
+                "replication_group_message_id_raw",
+                rc,
+            )),
+        }
     }
 }

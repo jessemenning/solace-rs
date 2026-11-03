@@ -84,13 +84,15 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
 
         // Note: Needs to live long enough for the values to be copied
         let mut cache_session_props = [
-            ffi::SOLCLIENT_CACHESESSION_PROP_CACHE_NAME.as_ptr() as *const i8,
+            ffi::SOLCLIENT_CACHESESSION_PROP_CACHE_NAME.as_ptr() as *const std::os::raw::c_char,
             c_cache_name.as_ptr(),
-            ffi::SOLCLIENT_CACHESESSION_PROP_DEFAULT_MAX_MSGS.as_ptr() as *const i8,
+            ffi::SOLCLIENT_CACHESESSION_PROP_DEFAULT_MAX_MSGS.as_ptr()
+                as *const std::os::raw::c_char,
             c_max_message.as_ptr(),
-            ffi::SOLCLIENT_CACHESESSION_PROP_MAX_AGE.as_ptr() as *const i8,
+            ffi::SOLCLIENT_CACHESESSION_PROP_MAX_AGE.as_ptr() as *const std::os::raw::c_char,
             c_max_age.as_ptr(),
-            ffi::SOLCLIENT_CACHESESSION_PROP_REQUESTREPLY_TIMEOUT_MS.as_ptr() as *const i8,
+            ffi::SOLCLIENT_CACHESESSION_PROP_REQUESTREPLY_TIMEOUT_MS.as_ptr()
+                as *const std::os::raw::c_char,
             c_timeout_ms.as_ptr(),
             ptr::null(),
         ];

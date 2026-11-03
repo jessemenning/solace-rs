@@ -20,10 +20,6 @@ type BoxMsgFn = Box<dyn FnMut(InboundMessage) + Send + 'static>;
 type BoxEventFn = Box<dyn FnMut(SessionEvent) + Send + 'static>;
 type BoxFlowEventFn = Box<dyn FnMut(FlowEvent) + Send + 'static>;
 
-/// Default guaranteed-messaging flow window: number of unacked messages the broker
-/// will push before waiting for acknowledgements.
-const FLOW_WINDOW_SIZE: &[u8] = b"255\0";
-
 /// Shared ownership of the underlying session.
 ///
 /// `Arc<Mutex<...>>` lets `OwnedAsyncFlow` keep the session alive through a clone
@@ -84,6 +80,7 @@ pub struct AsyncSessionBuilder {
     connect_timeout_ms: Option<u64>,
     ssl_trust_store_dir: Option<Vec<u8>>,
     client_name: Option<Vec<u8>>,
+    generate_rcv_timestamps: Option<bool>,
 }
 
 impl AsyncSessionBuilder {
@@ -100,6 +97,7 @@ impl AsyncSessionBuilder {
             connect_timeout_ms: None,
             ssl_trust_store_dir: None,
             client_name: None,
+            generate_rcv_timestamps: None,
         }
     }
 
@@ -159,6 +157,13 @@ impl AsyncSessionBuilder {
         self
     }
 
+    /// Instruct the API to populate the receive timestamp on every inbound
+    /// message (`get_rcv_timestamp`). Disabled by default.
+    pub fn generate_rcv_timestamps(mut self, generate: bool) -> Self {
+        self.generate_rcv_timestamps = Some(generate);
+        self
+    }
+
     pub fn build(self) -> Result<AsyncSession, AsyncSessionError> {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -180,8 +185,7 @@ impl AsyncSessionBuilder {
                     // publish_with_ack; no other code in this crate calls set_correlation_tag.
                     let corr_p = CURRENT_EVENT_CORR_PTR.with(|c| c.get());
                     if !corr_p.is_null() {
-                        let corr_id =
-                            unsafe { u64::from_ne_bytes(*(corr_p as *const [u8; 8])) };
+                        let corr_id = unsafe { u64::from_ne_bytes(*(corr_p as *const [u8; 8])) };
                         if let Some(sender) =
                             ack_senders_for_closure.lock().unwrap().remove(&corr_id)
                         {
@@ -233,6 +237,9 @@ impl AsyncSessionBuilder {
         }
         if let Some(name) = self.client_name {
             builder = builder.client_name(name);
+        }
+        if let Some(gen) = self.generate_rcv_timestamps {
+            builder = builder.generate_rcv_timestamps(gen);
         }
 
         let inner = builder.build()?;
@@ -308,9 +315,33 @@ impl AsyncSession {
         self.event_rx.recv().await
     }
 
+    /// Take ownership of the session event receiver, transferring it to the caller.
+    ///
+    /// This lets a separate task (e.g. a dedicated event drainer) consume
+    /// [`SessionEvent`]s — including broker acknowledgements in persistent mode —
+    /// independently of the session, which is otherwise held behind a `&self` in a
+    /// synchronous `OutputEndpoint`. Draining is required in persistent mode:
+    /// unconsumed `Acknowledgement` events accumulate in the channel unbounded.
+    ///
+    /// After this call, [`recv_event`](Self::recv_event) always returns `None`; the
+    /// returned receiver is the sole consumer of session events. Calling this more
+    /// than once yields an already-closed receiver on subsequent calls.
+    pub fn take_event_receiver(&mut self) -> tokio::sync::mpsc::UnboundedReceiver<SessionEvent> {
+        // Swap in a fresh, immediately-closed channel so the field stays valid and
+        // `recv_event` degrades to `None` rather than panicking.
+        let (_closed_tx, closed_rx) = tokio::sync::mpsc::unbounded_channel();
+        std::mem::replace(&mut self.event_rx, closed_rx)
+    }
+
     /// Publish a message (synchronous — the Solace C API publish is blocking).
     pub fn publish(&self, message: OutboundMessage) -> Result<(), SessionError> {
         self.inner.lock().unwrap().publish(message)
+    }
+
+    /// Publish multiple messages in a single C SDK call.  See
+    /// `Session::publish_multiple` for semantics and chunking behaviour.
+    pub fn publish_multiple(&self, messages: &[OutboundMessage]) -> Result<(), SessionError> {
+        self.inner.lock().unwrap().publish_multiple(messages)
     }
 
     /// Publish a message and return a future that resolves when the broker acknowledges it.
@@ -356,10 +387,19 @@ impl AsyncSession {
     ///
     /// The flow holds an `Arc` clone of the session, so the session will not be freed
     /// until all flows derived from it have been dropped.
+    ///
+    /// `window_size` controls how many unacked messages the broker will push before
+    /// pausing delivery. Set it to at least `target_msg_rate × persist_commit_interval_secs`
+    /// to avoid stalling the broker at high throughput.
+    ///
+    /// `max_unacked` maps to `SOLCLIENT_FLOW_PROP_MAX_UNACKED_MESSAGES`; pass `None`
+    /// to use the broker default.
     pub fn create_flow(
         &self,
         queue_name: &str,
         ack_mode: AckMode,
+        window_size: u32,
+        max_unacked: Option<i32>,
     ) -> Result<OwnedAsyncFlow, FlowError> {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -381,10 +421,15 @@ impl AsyncSession {
         };
         let durable_val: &[u8] = b"1\0";
         // Flow is created in the stopped state; callers must invoke .start() explicitly.
-        // This matches the behaviour of the synchronous FlowBuilder.
         let start_state_val: &[u8] = b"0\0";
+        let window_size_str = std::ffi::CString::new(window_size.to_string())
+            .map_err(FlowError::InvalidArgsNulError)?;
+        let max_unacked_str = max_unacked
+            .map(|m| std::ffi::CString::new(m.to_string()))
+            .transpose()
+            .map_err(FlowError::InvalidArgsNulError)?;
 
-        let props: Vec<*const std::os::raw::c_char> = vec![
+        let mut props: Vec<*const std::os::raw::c_char> = vec![
             ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_ID.as_ptr() as *const _,
             bind_entity_id.as_ptr() as *const _,
             ffi::SOLCLIENT_FLOW_PROP_BIND_NAME.as_ptr() as *const _,
@@ -394,11 +439,15 @@ impl AsyncSession {
             ffi::SOLCLIENT_FLOW_PROP_ACKMODE.as_ptr() as *const _,
             ack_mode_val.as_ptr() as *const _,
             ffi::SOLCLIENT_FLOW_PROP_WINDOWSIZE.as_ptr() as *const _,
-            FLOW_WINDOW_SIZE.as_ptr() as *const _,
+            window_size_str.as_ptr(),
             ffi::SOLCLIENT_FLOW_PROP_START_STATE.as_ptr() as *const _,
             start_state_val.as_ptr() as *const _,
-            std::ptr::null(),
         ];
+        if let Some(ref m) = max_unacked_str {
+            props.push(ffi::SOLCLIENT_FLOW_PROP_MAX_UNACKED_MESSAGES.as_ptr() as *const _);
+            props.push(m.as_ptr());
+        }
+        props.push(std::ptr::null());
 
         // Set up callback trampolines.
         // The double-boxing pattern mirrors FlowBuilder::build(): the outer Box gives us a stable
@@ -543,9 +592,7 @@ impl OwnedAsyncFlow {
     }
 
     /// Attempt to receive a flow event without blocking.
-    pub fn try_recv_event(
-        &mut self,
-    ) -> Result<FlowEvent, tokio::sync::mpsc::error::TryRecvError> {
+    pub fn try_recv_event(&mut self) -> Result<FlowEvent, tokio::sync::mpsc::error::TryRecvError> {
         self.event_rx.try_recv()
     }
 

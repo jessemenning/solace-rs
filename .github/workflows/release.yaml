@@ -25,12 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@b44cb146d03e8d870c57ab64b80f04586349ca5d
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --no-self-update
+      - uses: actions/cache@v4
         with:
-          toolchain: stable
-
-      # Restore build cache to avoid recompiling the world during publish verification.
-      - uses: Swatinem/rust-cache@v2
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: release-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: release-${{ runner.os }}-cargo-
 
       # Secrets cannot be tested in `if:` conditions directly; use an env var instead.
       - name: Check for crates.io token

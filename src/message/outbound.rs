@@ -60,6 +60,7 @@ impl OutboundMessage {
     /// The SDK stores the copy internally; callers do not need to keep `tag` alive after
     /// this call returns. The pointer is returned in the session event callback
     /// (`correlation_p`) when the broker acknowledges or rejects the message.
+    #[cfg(feature = "async")]
     pub(crate) fn set_correlation_tag(&self, tag: &[u8]) {
         unsafe {
             ffi::solClient_msg_setCorrelationTag(

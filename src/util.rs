@@ -122,7 +122,7 @@ pub(crate) fn on_flow_event_trampoline<'s, F>(
     _closure: &'s F,
 ) -> ffi::solClient_flow_eventCallbackFunc_t
 where
-    F: FnMut(FlowEvent) + Send + 's,
+    F: FnMut(FlowEvent) + Send + 's + ?Sized,
 {
     Some(static_on_flow_event::<F>)
 }
@@ -160,7 +160,7 @@ extern "C" fn static_on_flow_event<'s, F>(
     event_info_p: ffi::solClient_flow_eventCallbackInfo_pt,
     raw_user_closure: *mut ::std::os::raw::c_void,
 ) where
-    F: FnMut(FlowEvent) + Send + 's,
+    F: FnMut(FlowEvent) + Send + 's + ?Sized,
 {
     let non_null_raw_user_closure = std::ptr::NonNull::new(raw_user_closure);
 

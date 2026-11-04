@@ -43,6 +43,8 @@ fn main() {
     // KEYED=1: publish to `<INPUT_TOPIC>/k<key>` with payload `<seq>` so a Feldera
     // solace_input `topic_pattern` can extract the key. Default: single topic, `seq=..;key=..`.
     let keyed = std::env::var("KEYED").ok().as_deref() == Some("1");
+    // NODELAY=1: publish as fast as possible (ignore pacing) to measure the ingress ceiling.
+    let nodelay = std::env::var("NODELAY").ok().as_deref() == Some("1");
 
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = ctx
@@ -65,10 +67,12 @@ fn main() {
     let start = Instant::now();
     let mut seq: u64 = 0;
     while seq < total {
-        let next = start + interval * (seq as u32);
-        let now = Instant::now();
-        if next > now {
-            sleep(next - now);
+        if !nodelay {
+            let next = start + interval * (seq as u32);
+            let now = Instant::now();
+            if next > now {
+                sleep(next - now);
+            }
         }
         let (dest_topic, payload) = if keyed {
             (format!("{}/k{}", topic, seq % keys), format!("{}", seq))
@@ -87,7 +91,10 @@ fn main() {
         }
         seq += 1;
     }
-    eprintln!("load_gen: done, published {seq} msgs");
+    let span = start.elapsed().as_secs_f64().max(1e-6);
+    let tput = seq as f64 / span;
+    println!("INGRESS_RESULT published={seq} span_s={span:.3} throughput_msg_s={tput:.0}");
+    eprintln!("load_gen: published {seq} msgs in {span:.2}s = {tput:.0} msg/s");
     // Let the last persistent messages flush to the broker before the session drops.
     sleep(Duration::from_millis(500));
 }

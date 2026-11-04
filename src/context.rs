@@ -4,6 +4,7 @@ use crate::util::get_last_error_info;
 use crate::Session;
 use crate::{ContextError, SolClientReturnCode, SolaceLogLevel};
 use solace_rs_sys as ffi;
+use std::ffi::CString;
 use std::mem;
 use std::ptr;
 use std::sync::Mutex;
@@ -22,6 +23,33 @@ pub(super) struct RawContext {
 
 static SOLACE_GLOBAL_INIT: OnceLock<i32> = OnceLock::new();
 
+/// Global crypto-library configuration applied once, process-wide, at the first
+/// `solClient_initialize`.
+///
+/// The Solace C API does not embed OpenSSL — on Linux it `dlopen`s `libssl` /
+/// `libcrypto` by name at runtime (default search list `libssl.so.3`,
+/// `libssl.so.1.1`, `libssl.so`, and the crypto equivalents). These two fields
+/// are passed verbatim as the global properties `GLOBAL_SSL_LIB` /
+/// `GLOBAL_CRYPTO_LIB`, letting you pin the exact library the API loads — for
+/// example a FIPS-validated OpenSSL build whose `fips` provider is active.
+///
+/// Leave a field `None` to use the API's default search. Values may be a bare
+/// SONAME (`libcrypto.so.3`) resolved via the loader path, or an absolute path
+/// to a specific library file.
+#[derive(Clone, Debug, Default)]
+pub struct GlobalCryptoConfig {
+    /// TLS/SSL library name or path (`GLOBAL_SSL_LIB`).
+    pub ssl_lib: Option<Vec<u8>>,
+    /// Cryptography library name or path (`GLOBAL_CRYPTO_LIB`).
+    pub crypto_lib: Option<Vec<u8>>,
+}
+
+impl GlobalCryptoConfig {
+    fn is_empty(&self) -> bool {
+        self.ssl_lib.is_none() && self.crypto_lib.is_none()
+    }
+}
+
 impl RawContext {
     /// .
     /// Raw solace context that wraps around the c context
@@ -33,9 +61,57 @@ impl RawContext {
     /// # Safety
     /// Context initializes global variables so it is not safe to have multiple solace contexts.
     /// .
-    pub unsafe fn new(log_level: SolaceLogLevel) -> Result<Self> {
-        let rc = SOLACE_GLOBAL_INIT
-            .get_or_init(|| ffi::solClient_initialize(log_level as u32, ptr::null_mut()));
+    pub unsafe fn new(log_level: SolaceLogLevel, crypto: &GlobalCryptoConfig) -> Result<Self> {
+        // The Solace C API loads OpenSSL at runtime; `GLOBAL_SSL_LIB` /
+        // `GLOBAL_CRYPTO_LIB` pin which library it loads. These are global
+        // properties consumed by `solClient_initialize`. The CStrings below must
+        // outlive the call; they live for this function's scope, and
+        // `get_or_init` runs its closure synchronously before returning.
+        let ssl_lib = match &crypto.ssl_lib {
+            Some(v) => Some(
+                CString::new(v.clone())
+                    .map_err(|e| ContextError::InvalidGlobalProperty("ssl_lib".to_owned(), e))?,
+            ),
+            None => None,
+        };
+        let crypto_lib = match &crypto.crypto_lib {
+            Some(v) => Some(
+                CString::new(v.clone())
+                    .map_err(|e| ContextError::InvalidGlobalProperty("crypto_lib".to_owned(), e))?,
+            ),
+            None => None,
+        };
+
+        let mut global_props: Vec<*const std::os::raw::c_char> = Vec::new();
+        if let Some(cs) = &ssl_lib {
+            global_props
+                .push(ffi::SOLCLIENT_GLOBAL_PROP_SSL_LIB.as_ptr() as *const std::os::raw::c_char);
+            global_props.push(cs.as_ptr());
+        }
+        if let Some(cs) = &crypto_lib {
+            global_props
+                .push(ffi::SOLCLIENT_GLOBAL_PROP_CRYPTO_LIB.as_ptr() as *const std::os::raw::c_char);
+            global_props.push(cs.as_ptr());
+        }
+        let props_ptr = if global_props.is_empty() {
+            ptr::null_mut()
+        } else {
+            global_props.push(ptr::null());
+            global_props.as_mut_ptr() as *mut *mut std::os::raw::c_char
+        };
+
+        let mut applied = false;
+        let rc = SOLACE_GLOBAL_INIT.get_or_init(|| {
+            applied = true;
+            ffi::solClient_initialize(log_level as u32, props_ptr)
+        });
+        if !applied && !crypto.is_empty() {
+            warn!(
+                "GlobalCryptoConfig ignored: the Solace C API was already initialized by an \
+                 earlier context in this process; GLOBAL_SSL_LIB/GLOBAL_CRYPTO_LIB take effect \
+                 only on the first context created"
+            );
+        }
 
         let rc = SolClientReturnCode::from_raw(*rc);
 
@@ -109,8 +185,22 @@ pub struct Context {
 
 impl Context {
     pub fn new(log_level: SolaceLogLevel) -> std::result::Result<Self, ContextError> {
+        Self::with_crypto(log_level, &GlobalCryptoConfig::default())
+    }
+
+    /// Create a context, pinning the global OpenSSL/crypto libraries the Solace
+    /// C API loads at runtime. See [`GlobalCryptoConfig`].
+    ///
+    /// Note: Solace performs global initialization once per process, so the
+    /// crypto configuration takes effect only on the **first** context created
+    /// in the process; later contexts with a different config are ignored (a
+    /// warning is logged).
+    pub fn with_crypto(
+        log_level: SolaceLogLevel,
+        crypto: &GlobalCryptoConfig,
+    ) -> std::result::Result<Self, ContextError> {
         Ok(Self {
-            raw: Arc::new(Mutex::new(unsafe { RawContext::new(log_level) }?)),
+            raw: Arc::new(Mutex::new(unsafe { RawContext::new(log_level, crypto) }?)),
         })
     }
 

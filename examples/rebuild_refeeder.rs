@@ -25,7 +25,10 @@ use std::time::{Duration, Instant};
 
 use solace_rs::{
     flow::{AckMode, BindEntity},
-    message::{InboundMessage, Message},
+    message::{
+        DeliveryMode, DestinationType, InboundMessage, Message, MessageDestination,
+        OutboundMessageBuilder,
+    },
     session::SessionEvent,
     Context, SolaceLogLevel,
 };
@@ -40,6 +43,8 @@ fn env(name: &str, default: &str) -> String {
 struct Rec {
     seq: Option<u64>,
     msg_id: u64,
+    key: Option<String>, // last topic level (e.g. "k3"), for re-feed republish
+    payload: Vec<u8>,
 }
 
 fn main() {
@@ -50,6 +55,9 @@ fn main() {
     let pass = env("SOLACE_BROKER_PASSWORD", "");
     let src_queue = env("SRC_QUEUE", "bakeoff-src-q");
     let replay_start = env("REPLAY_START", "BEGINNING");
+    // If set, republish each drained message to `<REFEED_TOPIC>/<key>` so a cold Feldera
+    // re-ingests and rebuilds its view (end-to-end catch-up). Empty = source-only measurement.
+    let refeed_topic = env("REFEED_TOPIC", "");
 
     let ctx = Context::new(SolaceLogLevel::Warning).unwrap();
     let session = ctx
@@ -63,18 +71,51 @@ fn main() {
         .build()
         .expect("session build");
 
+    // A SEPARATE session for the re-feed republish, so persistent publishes do not contend
+    // with the drain flow on the same session (shared-session contention collapsed the shadow
+    // browse drain to a few msg/s). Only built when re-feeding.
+    let pub_session = if refeed_topic.is_empty() {
+        None
+    } else {
+        Some(
+            ctx.session_builder()
+                .host_name(host.as_str())
+                .vpn_name(vpn.as_str())
+                .username(user.as_str())
+                .password(pass.as_str())
+                .on_message(|_: InboundMessage| {})
+                .on_event(|_: SessionEvent| {})
+                .build()
+                .expect("pub session build"),
+        )
+    };
+
     // Callback only enqueues; main processes + acks (ack must run on the main-owned flow, and
     // on a browser flow the ack is what advances the cursor past each flow window).
     let inbox: Arc<Mutex<VecDeque<Rec>>> = Arc::new(Mutex::new(VecDeque::new()));
     let ib = Arc::clone(&inbox);
     let on_message = move |m: InboundMessage| {
-        let seq = m
+        let payload: Vec<u8> = m
             .get_payload()
             .ok()
             .flatten()
-            .and_then(|b| String::from_utf8_lossy(b).trim().parse::<u64>().ok());
+            .map(|b| b.to_vec())
+            .unwrap_or_default();
+        let seq = String::from_utf8_lossy(&payload).trim().parse::<u64>().ok();
         let msg_id = m.get_msg_id().ok().flatten().unwrap_or(0);
-        ib.lock().unwrap().push_back(Rec { seq, msg_id });
+        // Last topic level is the key (source topic is `<base>/<key>`), for re-feed republish.
+        let key = m
+            .get_destination()
+            .ok()
+            .flatten()
+            .and_then(|d| d.dest.into_string().ok())
+            .and_then(|t| t.rsplit('/').next().map(|s| s.to_string()));
+        ib.lock().unwrap().push_back(Rec {
+            seq,
+            msg_id,
+            key,
+            payload,
+        });
     };
 
     // Build the source flow for the chosen mode. Client ack so main advances the cursor.
@@ -143,6 +184,10 @@ fn main() {
     // If nothing ever arrives (e.g. a rejected/trimmed replay), give up after this and report
     // it loudly rather than hanging — a rebuild that delivers nothing must not look like success.
     let empty_timeout_ms: u64 = env("EMPTY_TIMEOUT_MS", "10000").parse().unwrap_or(10000);
+    // EXPECT_N: authoritative completion target for the browse drain (e.g. queue depth); 0 =
+    // use the fragile quiet heuristic. MAX_DRAIN_MS: hard safety cap so it can't loop forever.
+    let expect_n: u64 = env("EXPECT_N", "0").parse().unwrap_or(0);
+    let max_drain_ms: u64 = env("MAX_DRAIN_MS", "180000").parse().unwrap_or(180000);
     let loop_start = Instant::now();
 
     loop {
@@ -164,6 +209,25 @@ fn main() {
                             out_of_order += 1;
                         }
                         max_seq = max_seq.max(s);
+                    }
+                    // End-to-end: republish to Feldera's input topic so it rebuilds its view.
+                    if !refeed_topic.is_empty() {
+                        let k = rec.key.as_deref().unwrap_or("k0");
+                        let dest = MessageDestination::new(
+                            DestinationType::Topic,
+                            format!("{refeed_topic}/{k}").as_str(),
+                        )
+                        .unwrap();
+                        if let Ok(msg) = OutboundMessageBuilder::new()
+                            .destination(dest)
+                            .delivery_mode(DeliveryMode::Persistent)
+                            .payload(rec.payload.clone())
+                            .build()
+                        {
+                            if let Some(ps) = pub_session.as_ref() {
+                                let _ = ps.publish(msg);
+                            }
+                        }
                     }
                     // Replay: ack to advance/remove. Browser: never ack (would delete).
                     if !browse && rec.msg_id != 0 {
@@ -196,8 +260,20 @@ fn main() {
                 if !browse {
                     break;
                 }
-                if count == count_at_last_reset {
-                    break; // a full reset cycle produced nothing new → browsed everything
+                // Completion signal. With EXPECT_N (an authoritative target, e.g. the queue's
+                // SEMP spooledMsgCount) keep resetting until the target is hit — the quiet-
+                // period heuristic silently under-drains under re-feed load. Without it, fall
+                // back to the fragile heuristic (stop when a reset yields nothing new).
+                if expect_n > 0 {
+                    if count >= expect_n {
+                        break;
+                    }
+                } else if count == count_at_last_reset {
+                    break;
+                }
+                if loop_start.elapsed() >= Duration::from_millis(max_drain_ms) {
+                    eprintln!("{mode}: hard drain timeout at {count} (target {expect_n})");
+                    break;
                 }
                 count_at_last_reset = count;
                 resets += 1;

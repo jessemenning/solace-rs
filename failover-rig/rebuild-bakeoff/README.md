@@ -94,8 +94,23 @@ silently delivers what remains. The loud-failure subcodes (139 `START_TIME_NOT_A
 must **assert it reached its expected watermark**; "no error" ≠ "no gap." The re-feeder reports
 `drained=` and `failure_event=` for exactly this check.
 
+## End-to-end catch-up (`e2e.sh`, measured)
+
+Drains each source **and** re-feeds a cold Feldera (`program-e2e.sql`, separate publish
+session), timing the `rolling` view's rebuild to the full 20k backlog:
+
+| Source | End-to-end catch-up |
+|--------|---------------------|
+| **Replay** | **~2.2 s** — full rebuild, clean broker-driven end |
+| **Shadow** | **did not reliably catch up** |
+
+Shadow's browser-drain has no dependable drain-to-completion signal: the quiet heuristic
+**silently stops early** (1,100 / 20k under re-feed load), and forcing completion (`EXPECT_N`)
+makes `flow.start()` re-deliver from the top with **no forward progress** (~4 msg/s). A separate
+publish session did not fix it — it is the browse flow, not contention. End to end this is
+sharper than the "~40×" source number: under a live re-feed the shadow path is **not viable for
+real rebuild**, which is why replay is the mechanism and shadow is a last resort only.
+
 ## Remaining (not in this cut)
 
-- Feldera end-to-end catch-up (re-feed the drained stream into a pipeline; this rig measures
-  the source layer, the dominant differentiator).
 - A presentation UI (this rig's tables are the terminal demo).

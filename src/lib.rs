@@ -13,6 +13,7 @@ use std::fmt::{self, Display};
 use thiserror::Error;
 
 pub use crate::context::Context;
+pub use crate::context::GlobalCryptoConfig;
 pub use crate::message::outbound::MessageBuilderError;
 pub use crate::message::MessageError;
 pub use crate::session::builder::SessionBuilderError;
@@ -128,6 +129,8 @@ impl Display for SolClientSubCode {
 pub enum ContextError {
     #[error("context thread failed to initialize. SolClient return code: {0:?}")]
     InitializationFailed(SolClientReturnCode, SolClientSubCode),
+    #[error("invalid global crypto property '{0}': {1}")]
+    InvalidGlobalProperty(String, std::ffi::NulError),
 }
 
 #[derive(Error, Debug)]

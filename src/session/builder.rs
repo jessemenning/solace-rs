@@ -75,6 +75,9 @@ struct UncheckedSessionProps<Host, Vpn, Username, Password> {
     no_local: Option<bool>,
     modifyprop_timeout_ms: Option<u64>,
     ssl_trust_store_dir: Option<Vec<u8>>,
+    ssl_cipher_suites: Option<Vec<u8>>,
+    openssl_security_level: Option<u32>,
+    ssl_validate_certificate: Option<bool>,
 
     // TODO: need to check if some of these params will break other assumptions
     // ex: we might check for ok status on send but if send_blocking is set to false
@@ -135,6 +138,9 @@ impl<Host, Vpn, Username, Password> Default
             block_while_connecting: None,
             topic_dispatch: None,
             ssl_trust_store_dir: None,
+            ssl_cipher_suites: None,
+            openssl_security_level: None,
+            ssl_validate_certificate: None,
         }
     }
 }
@@ -417,6 +423,30 @@ where
         self.props.ssl_trust_store_dir = Some(ssl_trust_store_dir.into());
         self
     }
+    /// Comma-separated list of TLS cipher suites to offer (`SESSION_SSL_CIPHER_SUITES`),
+    /// ignored once TLSv1.3 is negotiated. Set this to restrict the handshake to a
+    /// FIPS-approved subset — the API default list includes non-approved ciphers
+    /// (RC4, MD5, DES/3DES). Example FIPS-approved value:
+    /// `"ECDHE-RSA-AES256-GCM-SHA384,ECDHE-RSA-AES128-GCM-SHA256,AES256-GCM-SHA384,AES128-GCM-SHA256"`.
+    pub fn ssl_cipher_suites<S: Into<Vec<u8>>>(mut self, ssl_cipher_suites: S) -> Self {
+        self.props.ssl_cipher_suites = Some(ssl_cipher_suites.into());
+        self
+    }
+    /// OpenSSL security level (`SESSION_OPENSSL_SECURITY_LEVEL`), 0-5. The library
+    /// default is 1; use 2 or higher for a stricter (FIPS-aligned) posture. 0 is
+    /// less secure than the default and should be avoided.
+    pub fn openssl_security_level(mut self, level: u32) -> Self {
+        self.props.openssl_security_level = Some(level);
+        self
+    }
+    /// Whether to validate the broker's server certificate during the TLS
+    /// handshake (`SESSION_SSL_VALIDATE_CERTIFICATE`). Enabled by default in the
+    /// C API; exposed here so it can be asserted on explicitly and never silently
+    /// disabled in a hardened deployment.
+    pub fn ssl_validate_certificate(mut self, validate: bool) -> Self {
+        self.props.ssl_validate_certificate = Some(validate);
+        self
+    }
 }
 
 struct CheckedSessionProps {
@@ -453,6 +483,9 @@ struct CheckedSessionProps {
     no_local: Option<bool>,
     modifyprop_timeout_ms: Option<CString>,
     ssl_trust_store_dir: Option<CString>,
+    ssl_cipher_suites: Option<CString>,
+    openssl_security_level: Option<CString>,
+    ssl_validate_certificate: Option<bool>,
 }
 
 impl CheckedSessionProps {
@@ -631,6 +664,23 @@ impl CheckedSessionProps {
             props.push(ffi::SOLCLIENT_SESSION_PROP_SSL_TRUST_STORE_DIR.as_ptr()
                 as *const std::os::raw::c_char);
             props.push(x.as_ptr());
+        }
+        if let Some(x) = &self.ssl_cipher_suites {
+            props.push(ffi::SOLCLIENT_SESSION_PROP_SSL_CIPHER_SUITES.as_ptr()
+                as *const std::os::raw::c_char);
+            props.push(x.as_ptr());
+        }
+        if let Some(x) = &self.openssl_security_level {
+            props.push(ffi::SOLCLIENT_SESSION_PROP_OPENSSL_SECURITY_LEVEL.as_ptr()
+                as *const std::os::raw::c_char);
+            props.push(x.as_ptr());
+        }
+        if let Some(x) = &self.ssl_validate_certificate {
+            props.push(
+                ffi::SOLCLIENT_SESSION_PROP_SSL_VALIDATE_CERTIFICATE.as_ptr()
+                    as *const std::os::raw::c_char,
+            );
+            props.push(bool_to_ptr(*x));
         }
 
         props.push(ptr::null());
@@ -859,6 +909,21 @@ where
             Some(x) => Some(CString::new(x)?),
             None => None,
         };
+        let ssl_cipher_suites = match value.ssl_cipher_suites {
+            Some(x) => Some(CString::new(x)?),
+            None => None,
+        };
+        let openssl_security_level = match value.openssl_security_level {
+            Some(x) if x > 5 => {
+                return Err(SessionBuilderError::InvalidRange(
+                    "openssl_security_level".to_owned(),
+                    "0..=5".to_owned(),
+                    x.to_string(),
+                ));
+            }
+            Some(x) => Some(CString::new(x.to_string())?),
+            None => None,
+        };
 
         Ok(Self {
             host_name,
@@ -892,6 +957,9 @@ where
             no_local: value.no_local,
             modifyprop_timeout_ms,
             ssl_trust_store_dir,
+            ssl_cipher_suites,
+            openssl_security_level,
+            ssl_validate_certificate: value.ssl_validate_certificate,
         })
     }
 }

@@ -79,6 +79,9 @@ pub struct AsyncSessionBuilder {
     reapply_subscriptions: Option<bool>,
     connect_timeout_ms: Option<u64>,
     ssl_trust_store_dir: Option<Vec<u8>>,
+    ssl_cipher_suites: Option<Vec<u8>>,
+    openssl_security_level: Option<u32>,
+    ssl_validate_certificate: Option<bool>,
     client_name: Option<Vec<u8>>,
     generate_rcv_timestamps: Option<bool>,
 }
@@ -96,6 +99,9 @@ impl AsyncSessionBuilder {
             reapply_subscriptions: None,
             connect_timeout_ms: None,
             ssl_trust_store_dir: None,
+            ssl_cipher_suites: None,
+            openssl_security_level: None,
+            ssl_validate_certificate: None,
             client_name: None,
             generate_rcv_timestamps: None,
         }
@@ -148,6 +154,27 @@ impl AsyncSessionBuilder {
     /// Directory containing trusted CA certificates for TLS connections.
     pub fn ssl_trust_store_dir<S: Into<Vec<u8>>>(mut self, dir: S) -> Self {
         self.ssl_trust_store_dir = Some(dir.into());
+        self
+    }
+
+    /// Comma-separated TLS cipher suites to offer (TLSv1.2 and earlier). Restrict
+    /// this to a FIPS-approved subset; the API default includes non-approved
+    /// ciphers (RC4, MD5, DES/3DES).
+    pub fn ssl_cipher_suites<S: Into<Vec<u8>>>(mut self, ciphers: S) -> Self {
+        self.ssl_cipher_suites = Some(ciphers.into());
+        self
+    }
+
+    /// OpenSSL security level (0-5; API default 1). Use 2+ for a stricter posture.
+    pub fn openssl_security_level(mut self, level: u32) -> Self {
+        self.openssl_security_level = Some(level);
+        self
+    }
+
+    /// Validate the broker's server certificate during the TLS handshake
+    /// (enabled by default in the C API).
+    pub fn ssl_validate_certificate(mut self, validate: bool) -> Self {
+        self.ssl_validate_certificate = Some(validate);
         self
     }
 
@@ -234,6 +261,15 @@ impl AsyncSessionBuilder {
         }
         if let Some(dir) = self.ssl_trust_store_dir {
             builder = builder.ssl_trust_store_dir(dir);
+        }
+        if let Some(ciphers) = self.ssl_cipher_suites {
+            builder = builder.ssl_cipher_suites(ciphers);
+        }
+        if let Some(level) = self.openssl_security_level {
+            builder = builder.openssl_security_level(level);
+        }
+        if let Some(validate) = self.ssl_validate_certificate {
+            builder = builder.ssl_validate_certificate(validate);
         }
         if let Some(name) = self.client_name {
             builder = builder.client_name(name);
